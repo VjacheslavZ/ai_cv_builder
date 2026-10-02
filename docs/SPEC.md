@@ -1,6 +1,8 @@
 # AI CV Builder — Specification
 
-Status: v1.
+Status: v1.1.
+
+**Changes in v1.1** (review against the development plans): automatic BullMQ lock renewal instead of a long `lockDuration` (AC-5.7, NFR-R4); one sweeper rule (AC-5.7a, §6.1); fencing by `aiRevision` instead of `version` (AC-9.7); AI updates in another section are not a user-visible conflict (AC-10.4); client IP behind the Next.js proxy (AC-1.6); id-based merge of AI section rewrites (AC-9.3); structured dates and field paths (§0, AC-8.1); atom rules for names in free text, PDF hyphenation, localized month names (AC-7.2, AC-7.3); question lifecycle (AC-8.6); simple-field answers (AC-9.2); answer rate limit and per-job LLM call budget (NFR-S9, NFR-R3); temporary PDF retention and extraction warnings (§1, AC-4.3); Regenerate is P1 and keeps the previous CV until the new one is ready (FR-13); Playwright mobile smoke test is P0 (§5.4).
 
 ---
 
@@ -10,7 +12,8 @@ Status: v1.
 |---|---|
 | **Source** | Data treated as facts about the user: text extracted from the uploaded PDF; the user's free text; answers to clarifying questions; text the user typed during manual editing. Nothing else counts as a fact. |
 | **Target role** | A string such as "Senior Backend Engineer". It is **not a fact** but a goal: wording and ordering are chosen to fit it. |
-| **CV document** | Structured JSON: contact, summary, experience[], education[], skills[]. Stored in the DB and rendered in the UI and PDF. |
+| **CV document** | Structured JSON: contact, summary, experience[], education[], skills[]. Every entry, bullet, link, and skill has a stable UUID. Dates are structured: `start` and `end` as `YYYY` or `YYYY-MM`; `end` may be `present`. Stored in the DB and rendered in the UI and PDF. |
+| **Field path** | The address of a place in the CV document, used by questions, edits, `userEdited` marks, and highlights. A path points either at a field (`contact.email`, `summary`, `experience.<id>.dates`, `experience.<id>.bullets.<id>`) or at a whole list or section (`experience.<id>.bullets`, `education`). |
 | **Job** | An asynchronous AI operation: initial generation or applying an answer to a question. Its user-visible state (status, stage, error) is stored in Postgres; execution is dispatched through a BullMQ queue in Redis. |
 | **Question** | A clarification from the AI tied to a specific place in the CV. Raised when data is missing, vague, or a fact could not be verified. |
 | **Grounding check** | A deterministic check in server code (not an LLM). Ensures every fact in the AI output is supported by the source. |
@@ -42,7 +45,7 @@ Status: v1.
 | 18 | Job queue | **BullMQ on Redis** for dispatch, retries, backoff, and stalled-job detection. Postgres keeps the job status the user sees. |
 
 **Assumptions**
-- The original PDF is **not stored long-term**: the bytes are kept in a temporary Postgres table (written in the same transaction as the CV) only until the worker extracts the text, then deleted. Less personal data, no file storage, and no large payloads in Redis.
+- The original PDF is **not stored long-term**: the bytes are kept in a temporary Postgres table (written in the same transaction as the CV) only until the worker extracts the text, then deleted. They are also deleted after a permanent extraction failure, and by the sweeper 24 h after upload at the latest. Less personal data, no file storage, and no large payloads in Redis.
 - At most 10 questions per draft, most important first.
 
 ---
@@ -95,7 +98,7 @@ Priorities:
 **AC-1.6 Brute-force protection**
 - **Given** many login attempts come from one IP
 - **When** the limit is exceeded (better-auth rate limit, counters stored in Redis so they survive API restarts)
-- **Then** the API responds `429` and the UI shows "Too many attempts, try later"
+- **Then** the API responds `429` and the UI shows "Too many attempts, try later". The API receives every request through the Next.js rewrite, so the client IP is taken from the `X-Forwarded-For` header set by the proxy (better-auth's IP header setting); otherwise all users would share one counter
 
 ### FR-2. Data isolation — P0
 
@@ -151,7 +154,7 @@ Priorities:
 **AC-4.3 Scan without text**
 - **Given** a PDF with no text layer or fewer than ~200 meaningful text characters
 - **When** extraction runs
-- **Then** if there is no free text, the CV gets status `failed` with reason `PDF_NO_TEXT` and the message "This PDF looks like a scan. Paste your experience as text instead". If free text exists, generation continues using it and the user sees a warning
+- **Then** if there is no free text, the CV gets status `failed` with reason `PDF_NO_TEXT` and the message "This PDF looks like a scan. Paste your experience as text instead". If free text exists, generation continues using it and the user sees a warning. The warning is stored on the CV (`warnings[]`), so it is still shown after a reload or on another device
 
 **AC-4.4 Corrupted, encrypted, or oversized PDF**
 - **Given** the PDF is corrupted, password-protected, or longer than 10 pages
@@ -192,13 +195,13 @@ Priorities:
 
 **AC-5.7 Worker crash**
 - **Given** the worker crashed or restarted mid-job
-- **When** the job's lock expires (BullMQ stalled-job detection, `lockDuration` > the longest step)
-- **Then** the job is returned to the queue and re-run (up to `maxStalledCount` / the attempt limit). A job never hangs in `generating` forever
+- **When** the job's lock expires (BullMQ stalled-job detection)
+- **Then** the job is returned to the queue and re-run (up to `maxStalledCount` / the attempt limit). A job never hangs in `generating` forever. A live worker renews its locks automatically (every `lockDuration / 2`) as long as the event loop is free, so long steps such as the LLM call need no long `lockDuration`; CPU-heavy work (PDF parsing) runs in a `worker_thread`. `lockDuration` stays near the default (30 s), so a crashed worker is detected quickly. BullMQ is at-least-once: a job may run twice, which is safe because results are written whole and the worker re-checks the DB state before writing (NFR-R7)
 
 **AC-5.7a Job lost between Postgres and Redis**
 - **Given** the job row was committed in Postgres, but enqueueing in BullMQ failed (Redis unavailable, API crashed right after commit)
 - **When** the sweeper runs (every 30 s)
-- **Then** it re-enqueues jobs that are `queued` in Postgres for more than 30 s, using the DB job id as the BullMQ `jobId`, so a re-enqueue never produces a duplicate
+- **Then** it re-enqueues jobs that are `queued` in Postgres for more than 30 s, and jobs that are `running` in Postgres but no longer exist in BullMQ (Redis data lost), using the DB job id as the BullMQ `jobId`, so a re-enqueue never produces a duplicate
 
 **AC-5.8 One active generation per CV**
 - **Given** a CV already has an active generation job
@@ -252,12 +255,14 @@ Priorities:
 **AC-7.2 Quote check**
 - **Given** an element with `evidence`
 - **When** the `validating` stage runs
-- **Then** the server checks that the normalized quote (case, whitespace, line breaks, typographic quotes and dashes) is a substring of the normalized source. If not, the element is considered unsupported
+- **Then** the server checks that the normalized quote (case, whitespace, line breaks, typographic quotes and dashes, ligatures, soft hyphens, and end-of-line hyphenation such as `devel-\nopment` from PDF extraction) is a substring of the normalized source. If not, the element is considered unsupported
 
 **AC-7.3 Atomic fact check**
 - **Given** the element text contains numbers (including `%`, `$`, `k`, `x`), years and dates, emails, phone numbers, URLs, company and institution names
 - **When** the check runs
 - **Then** each such atom is found in the source (with normalization). For example, "Increased throughput by 40%" is allowed only if "40" and "%" appear in the source in the same context. Otherwise the element is unsupported
+- "Same context" means inside that element's `evidence` quotes. Dates match after parsing to year (and month), including month names in the source language (`январь 2020` = `Jan 2020` = `01.2020`)
+- Company and institution names are checked in the structured fields (`company`, `institution`, `contact.name`). Inside free text (bullets, summary) every capitalized token that does not start a sentence and is not a known skill must appear in the element's evidence (or be its transliteration, AC-6.5). The rule is configurable, since it can reject honest wording
 
 **AC-7.4 Skills**
 - **Given** the LLM added the skill "Kubernetes"
@@ -268,8 +273,6 @@ Priorities:
 - **Given** an element failed the check
 - **When** the `validating` stage finishes
 - **Then** the element is **removed** from the CV, a question is created for the corresponding section (without hinting at the fabricated value), and the event is recorded in the `grounding report` in logs and the DB, with no personal data in logs
-
-  FR-13
 
 **AC-7.7 The target role is not a fact**
 - **Given** the role "Senior Backend Engineer", and the source contains neither "senior" nor "backend"
@@ -286,7 +289,7 @@ Priorities:
 **AC-8.1 Questions alongside the draft**
 - **Given** the source has no email, an entry without dates, and a vague description ("worked on backend stuff")
 - **When** generation completes
-- **Then** the draft is shown immediately with a list of questions alongside. Each question is tied to a specific location (`contact.email`, `experience[id].dates`, `experience[id].bullets`), and that location is visually marked in the CV
+- **Then** the draft is shown immediately with a list of questions alongside. Each question is tied to a field path (`contact.email`, `experience.<id>.dates`, `experience.<id>.bullets`), and that location is visually marked in the CV
 
 **AC-8.2 Question types**
 - **Given** the draft has been produced
@@ -308,6 +311,11 @@ Priorities:
 - **When** the user submits it
 - **Then** the request is not sent or the API responds `400`
 
+**AC-8.6 Question lifecycle**
+- **Given** an open question points to a field or section
+- **When** the user edits that place by hand, or an `apply_answer` job rewrites a section
+- **Then** a question whose place was edited by hand gets status `resolved` and leaves the open list. A rewrite may create new `unverified` questions for the rewritten section (AC-7.5). The 10-question cap applies to open questions at any moment; when it is reached, lower-priority questions are not created. Statuses: `open`, `applying`, `answered`, `dismissed`, `resolved`, `failed`
+
 ### FR-9. Applying an answer — P0 (undo — P1)
 
 **AC-9.1 Updating the related section**
@@ -319,11 +327,13 @@ Priorities:
 - **Given** a question about `contact.email`
 - **When** the user answers `me@example.com`
 - **Then** the value is format-validated and written directly to the field, without calling the LLM. An invalid email gets `400`
+- Simple fields are single-value fields: contact fields, dates, and English spellings of proper nouns (AC-6.5: company, institution, full name). The written field gets `userEdited = true`, since the user typed it
 
 **AC-9.3 Manual edits are untouched**
 - **Given** the user manually edited bullet #2 in `experience[Acme]` (`userEdited = true`)
 - **When** an AI update of this section is applied
 - **Then** bullet #2 stays byte-for-byte the same. This is enforced by the server (after the LLM responds, it restores `userEdited` fields), not just by the prompt
+- The LLM receives the section with the ids of its existing items and must return them; the server matches items by id. The AI cannot delete or reorder `userEdited` items: missing ones are restored in their original order. Items the AI adds get new ids
 
 **AC-9.4 Apply progress**
 - **Given** an `apply_answer` job is running
@@ -343,7 +353,7 @@ Priorities:
 **AC-9.7 Job queue per CV**
 - **Given** the user quickly answered two questions about the same section
 - **When** both jobs run
-- **Then** they are applied sequentially, the second on top of the first's result, and both answers are reflected. Serialization is done with a per-CV Redis lock (`SET NX PX` with an owner token); a job that cannot take the lock is moved back to delayed. The final write also checks the CV `version` under a row lock (fencing), so an expired lock can never overwrite newer data
+- **Then** they are applied sequentially, the second on top of the first's result, and both answers are reflected. Serialization is done with a per-CV Redis lock (`SET NX PX` with an owner token); a job that cannot take the lock is moved back to delayed. The final write takes the CV row lock and checks the CV's `aiRevision` (fencing): a counter incremented only by AI writes, not by manual edits. If it changed since the job started, the result is discarded and the job re-runs on the current state. So an expired lock can never overwrite a newer AI change, and typing in the editor never invalidates an AI job
 
 ### FR-10. Manual editing and autosave — P0 (reorder and add/remove — P1)
 
@@ -366,6 +376,7 @@ Priorities:
 - **Given** the CV is open on two devices (or the AI has just updated it), and the client sends a `PATCH` with a stale `baseVersion`
 - **When** the server processes the request
 - **Then** it responds `409` with the current CV version. The UI shows "This CV was changed elsewhere", loads the current state, and **does not silently lose** the user's unsaved text (offers to re-apply it)
+- An AI update of another section is not shown as a conflict: on the SSE `section_updated` event the client takes the new version and re-sends its pending changes automatically when none of them touch the updated section. The message above appears only when pending changes overlap a place changed elsewhere
 
 **AC-10.5 Local buffer — P1**
 - **Given** the network dropped or the session expired during editing
@@ -431,12 +442,15 @@ Priorities:
 - **When** the user changes its title
 - **Then** the new title is saved (1–100 characters)
 
-### FR-13. Regenerate from scratch
+### FR-13. Regenerate from scratch — P1
 
 **AC-13.1**
 - **Given** a CV in status `ready`
 - **When** the user clicks "Regenerate" and confirms losing manual edits
 - **Then** a new generation runs on the same source (including answers). Manual edits and questions are reset
+- Before the reset, the text of manual edits is saved as source (manual text is a fact), so facts the user typed are not lost, only their wording
+- Active `apply_answer` jobs for this CV are cancelled first
+- The previous document stays visible and downloadable until the new generation completes, and is replaced in the same transaction that writes the result. If the generation fails, the previous document is kept, the CV returns to `ready`, and the user sees the reason
 
 ---
 
@@ -458,7 +472,7 @@ Decided during clarification:
 - CV version history (beyond undo of the single last AI change).
 - Streaming a partially generated CV (only stages are streamed).
 - Real-time collaborative editing (conflicts are resolved via `409`, no CRDT or merge).
-- Final PDF preview on phones, PWA, offline mode.
+- Final PDF preview on phones, PWA, offline mode (working without a network; the local buffer of unsaved edits in AC-10.5 is not offline mode).
 - Sharing a CV via a public link.
 - Export to DOCX or any format other than PDF.
 - Account management (changing email or password, deleting the account), logging out of all devices.
@@ -474,13 +488,13 @@ Decided during clarification:
 |---|---|---|
 | NFR-R1 | **Persistent jobs.** Every AI operation has a job row in PostgreSQL (status, stage, attempts, error) — this is what the user sees and what survives a Redis loss. Execution is dispatched via BullMQ; the BullMQ payload contains only ids. An HTTP request never waits for the LLM. | Integration test: creating a CV returns without waiting for the worker |
 | NFR-R2 | **Separate worker.** The worker is a separate process and a separate compose service (NestJS standalone context + BullMQ `Worker`). A crashed worker's job is picked up again via BullMQ stalled-job detection. An API crash does not affect jobs and vice versa. | Test: kill the worker mid-job → the job is detected as stalled and reaches `completed` |
-| NFR-R3 | **Bounded retries.** Transient Anthropic errors (`429`, `5xx`, `529`, network, timeout) are retried with exponential backoff, jitter, and `retry-after` honored. BullMQ `attempts: 3` per job, ≤ 2 re-requests for invalid output. Permanent errors (`400`, `401`) are thrown as `UnrecoverableError` and not retried. | Unit test of the error classifier + test with a mock client |
-| NFR-R4 | **Timeouts everywhere.** LLM call ≤ 120 s, PDF extraction ≤ 15 s, PDF rendering ≤ 10 s. BullMQ `lockDuration` is set above the longest step. A job still not finished 10 min after creation gets `failed`. | Unit/integration |
+| NFR-R3 | **Bounded retries.** Transient Anthropic errors (`429`, `5xx`, `529`, network, timeout) are retried with exponential backoff, jitter, and `retry-after` honored. BullMQ `attempts: 3` per job, ≤ 2 re-requests for invalid output. Permanent errors (`400`, `401`) are thrown as `UnrecoverableError` and not retried. The retry layers multiply (SDK retries × invalid-output re-requests × BullMQ attempts), so they are bounded by a per-job deadline: before every LLM call the worker checks the time left until the 10-minute limit (NFR-R4), and when it is not enough the job fails with `JOB_TIMEOUT` as an `UnrecoverableError`. | Unit test of the error classifier + test with a mock client |
+| NFR-R4 | **Timeouts everywhere.** LLM call ≤ 120 s, PDF extraction ≤ 15 s, PDF rendering ≤ 10 s. The worker's event loop is never blocked, so BullMQ renews job locks automatically (AC-5.7). A job still not finished 10 min after creation gets `failed`. All intervals and timeouts are configurable via env, so tests can shorten them. | Unit/integration |
 | NFR-R5 | **Distrust of LLM output.** LLM output is checked by a Zod schema and the grounding check. Invalid output is never written to the CV. | Fixture set of "bad" LLM responses: invalid JSON, extra fields, fabricated facts, huge strings |
 | NFR-R6 | **Atomicity.** Writing a job's result to the CV and changing its status happen in one transaction under a CV row lock, incrementing `version`. | Integration test racing an AI update against a manual `PATCH` |
 | NFR-R7 | **Idempotency.** CV creation accepts an `Idempotency-Key` (unique in Postgres). The BullMQ `jobId` equals the DB job id, so re-enqueueing is a no-op. Re-running a job after a crash does not duplicate questions or sections (results are written whole, not appended). | Integration |
 | NFR-R8 | **Observability.** Structured (JSON) logs with `requestId`, `jobId`, stage, duration, tokens, and number of filtered facts. No CV text, emails, or keys in logs. Health endpoints `/health` (liveness) and `/ready` (Postgres **and** Redis reachable). | Review + test that key paths log no PII |
-| NFR-R9 | **One-command start.** `docker compose up` brings up postgres, redis, api, worker, and web. Prisma migrations (`prisma migrate deploy`) apply automatically; healthchecks and `depends_on: service_healthy` are configured. The only secret is `ANTHROPIC_API_KEY` from `.env`. | Fresh clone → `docker compose up` → flow works |
+| NFR-R9 | **One-command start.** `docker compose up` brings up postgres, redis, api, worker, and web. Prisma migrations (`prisma migrate deploy`) apply automatically; healthchecks and `depends_on: service_healthy` are configured. The only value that must be provided is `ANTHROPIC_API_KEY` in `.env`; the better-auth secret has a local-only default in compose that `.env` can override. | Fresh clone → `docker compose up` → flow works |
 | NFR-R10 | **Graceful shutdown.** On `SIGTERM` the worker calls BullMQ `worker.close()`: it stops taking new jobs and waits for the current one (≤ 30 s); if it is killed earlier, the job is recovered as stalled. | Manual check + README |
 | NFR-R11 | **Redis durability.** Redis runs with `appendonly yes` (`appendfsync everysec`) on a named volume, so sessions and queued jobs survive a restart. `maxmemory-policy noeviction` (required by BullMQ: evicting queue keys would silently lose jobs). | Restart the redis container → user stays logged in, queued job completes |
 | NFR-R12 | **Redis failure mode.** If Redis is unreachable, authenticated API calls fail closed with `503 SERVICE_UNAVAILABLE` (never "logged in without a session check"); no business data is lost because Postgres holds it. When Redis returns, the sweeper (AC-5.7a) re-enqueues pending jobs. | Integration test with Redis stopped |
@@ -497,7 +511,7 @@ Decided during clarification:
 | NFR-S6 | **Prompt injection.** The source is passed to the LLM inside explicit delimiters as data. The system prompt forbids following instructions from the source. Responses are accepted only via structured output. The main defense is the server-side grounding check, not the prompt. |
 | NFR-S7 | **LLM and user output is text only.** In the UI it is rendered with React escaping (no `dangerouslySetInnerHTML`). Only text goes into the PDF, no HTML or markup. Only `http(s)` and `mailto` links are allowed. |
 | NFR-S8 | **Secrets.** `ANTHROPIC_API_KEY` and the better-auth secret are available only to api and worker, never end up in the client bundle (no `NEXT_PUBLIC_` prefix), and are never logged. `.env` is in `.gitignore`; the repo has `.env.example`. |
-| NFR-S9 | **Rate limiting and key spend.** Auth endpoints are limited by better-auth's built-in rate limit (`rateLimit.storage: "secondary-storage"`, i.e. Redis). Generation is limited to ≤ 2 active jobs per user (counted in Postgres, the source of truth) and ≤ 20 generations per hour (Redis counter), otherwise `429`. Protects the key from being drained. |
+| NFR-S9 | **Rate limiting and key spend.** Auth endpoints are limited by better-auth's built-in rate limit (`rateLimit.storage: "secondary-storage"`, i.e. Redis). Generation (create, retry, regenerate) is limited to ≤ 2 active generation jobs per user (counted in Postgres, the source of truth) and ≤ 20 generations per hour (Redis counter), otherwise `429`. `apply_answer` jobs do not count toward these limits (they are serialized per CV, AC-9.7) but have their own limit of ≤ 60 per hour per user (Redis counter), otherwise `429`. Protects the key from being drained. |
 | NFR-S10 | **Headers and errors.** Security headers via `helmet` (CSP, `X-Content-Type-Options`, `frame-ancestors 'none'`). The client receives generic errors with a code (`{ code, message }`), without stack traces or SQL (a global Nest exception filter). |
 | NFR-S11 | **Personal data.** A CV is PII. Deleting a CV physically erases related data. No CV content in logs. Only what the job needs is sent to Anthropic. |
 
@@ -521,7 +535,7 @@ Decided during clarification:
 3. **Integration (real Postgres + Redis in docker):** job lifecycle — enqueue, stalled-job recovery, retries, `UnrecoverableError` → `failed`, sweeper re-enqueue; per-CV lock + version fencing; race between an AI update and a manual `PATCH` (`409`, `userEdited` untouched); Redis down → `503`.
 4. **E2E API:** user isolation across all endpoints; full flow with a mocked Anthropic client.
 5. **PDF:** the generated file is A4 and its text is extractable.
-6. **E2E UI (Playwright, P1):** flow on a mobile viewport; reload during generation.
+6. **E2E UI (Playwright):** one P0 smoke test — the full flow at a 360×740 viewport with no horizontal scrolling (NFR-M1). P1: the 375×667 viewport and reload during generation.
 
 All tests run without a real `ANTHROPIC_API_KEY`: the LLM client sits behind an interface and is replaced by a fake. A separate optional smoke test against a real key is run manually.
 
@@ -536,7 +550,7 @@ All tests run without a real `ANTHROPIC_API_KEY`: the LLM client sits behind an 
 - **Backend:** NestJS on `@nestjs/platform-express` (Express), REST, Zod validation via a global pipe, `helmet`, multer for uploads. Created with `bodyParser: false` as required by better-auth; JSON parsing (limit 1 MB) is enabled for all routes except `/api/auth/*`.
 - **Auth:** better-auth (email + password) with the Prisma adapter for users/accounts and `@better-auth/redis-storage` (ioredis) as `secondaryStorage` for sessions and rate-limit counters. NestJS integration via `@thallesp/nestjs-better-auth` (documented for Express): its global `AuthGuard` makes every route protected by default; public routes are marked `@AllowAnonymous()`.
 - **Worker:** the same NestJS codebase, started as a standalone application context with a separate command in compose, running a BullMQ `Worker` (concurrency 2–4). Queue `cv-jobs` with job names `generate` and `apply_answer`.
-- **DB:** PostgreSQL 16 via **Prisma ORM 7** (`prisma-client` generator, `@prisma/adapter-pg`, `prisma.config.ts`, `prisma migrate deploy` on start). The CV is stored as `Json` (JSONB) plus a `version` column; questions, jobs, source, and temporary PDF uploads live in separate tables. Row locks (`SELECT … FOR UPDATE`) are taken with `$queryRaw` inside an interactive `$transaction`.
+- **DB:** PostgreSQL 16 via **Prisma ORM 7** (`prisma-client` generator, `@prisma/adapter-pg`, `prisma.config.ts`, `prisma migrate deploy` on start). The CV is stored as `Json` (JSONB) plus `version` (every write) and `aiRevision` (AI writes only, AC-9.7) columns; questions, jobs, source, and temporary PDF uploads live in separate tables. Row locks (`SELECT … FOR UPDATE`) are taken with `$queryRaw` inside an interactive `$transaction`.
 - **Redis:** Redis 7, one instance, AOF + `noeviction` (see 6.1). The client uses `ioredis` (`maxRetriesPerRequest: null` for BullMQ connections).
 - **LLM:** Anthropic SDK, model set via env, responses only via structured output.
 - **PDF:** `@react-pdf/renderer` or `pdfkit` on the server, with an embedded Latin Extended + Cyrillic font.
@@ -550,10 +564,10 @@ Rule: **Postgres is the source of truth for business data; Redis holds what is e
 |---|---|---|---|
 | **Sessions** | better-auth `secondaryStorage`, `better-auth:*`, TTL = session lifetime | Fast lookup on every request, instant revocation on logout, natural expiry | Users must log in again; no data is lost |
 | **Auth rate limiting** | better-auth `rateLimit.storage: "secondary-storage"` | Counters survive API restarts and would be shared across several API instances | Counters reset |
-| **Generation rate limit** | `rl:gen:{userId}:{hour}` — `INCR` + `EXPIRE 3600` | Cheap sliding counter, protects the API key (NFR-S9) | Counter resets for the current hour |
-| **Job queue** | BullMQ queue `cv-jobs`, `jobId` = DB job id | Retries, backoff, stalled detection, concurrency, graceful shutdown out of the box | Sweeper re-enqueues every `queued`/`running` job from Postgres (AC-5.7a) |
+| **Generation and answer rate limits** | `rl:gen:{userId}:{hour}` and `rl:ans:{userId}:{hour}` — `INCR` + `EXPIRE 3600` | Cheap sliding counter, protects the API key (NFR-S9) | Counter resets for the current hour |
+| **Job queue** | BullMQ queue `cv-jobs`, `jobId` = DB job id | Retries, backoff, stalled detection, concurrency, graceful shutdown out of the box | Sweeper re-enqueues `queued` jobs older than 30 s and `running` jobs missing from BullMQ (AC-5.7a) |
 | **Real-time fan-out** | Pub/Sub channel `cv:{cvId}:events`; worker publishes after commit, API forwards to SSE clients (one shared subscriber connection) | Worker and API are separate processes; avoids polling Postgres for every open SSE connection | Nothing to lose: on (re)connect the client receives a snapshot from Postgres (AC-5.1) |
-| **Per-CV serialization** | `lock:cv:{cvId}` — `SET NX PX` with an owner token, released via compare-and-delete | Ensures `apply_answer` jobs for one CV run one at a time (AC-9.7) | Lock disappears; the version check at commit (fencing) still prevents lost updates |
+| **Per-CV serialization** | `lock:cv:{cvId}` — `SET NX PX` with an owner token, released via compare-and-delete | Ensures `apply_answer` jobs for one CV run one at a time (AC-9.7) | Lock disappears; the `aiRevision` check at commit (fencing) still prevents lost updates |
 
 Deliberately **not** in Redis:
 - **CV data, questions, answers, source, job status** — business data, needs transactions and durability → Postgres.
@@ -572,6 +586,7 @@ GET    /api/cvs/:id                     CV + questions + active jobs + version
 PATCH  /api/cvs/:id                     {baseVersion, ops[]} → 200 {version} | 409 {current}
 DELETE /api/cvs/:id
 POST   /api/cvs/:id/retry               restart a failed generation
+POST   /api/cvs/:id/regenerate          regenerate a ready CV from its source (P1)
 POST   /api/cvs/:id/undo                revert the last AI change (P1)
 GET    /api/cvs/:id/events              SSE: job stages, section updates, heartbeat
 GET    /api/jobs/:id                    fallback job status
@@ -589,10 +604,10 @@ GET    /health, /ready                  /ready checks Postgres and Redis
 |---|---|
 | `bodyParser: false` (required by better-auth) breaks JSON parsing on our own routes | Re-enable JSON / urlencoded parsers for every path except `/api/auth/*`; covered by an e2e test of one auth route and one CV route |
 | Next.js rewrite buffers SSE | Fallback to status `GET` (AC-5.4), or call the API directly with CORS and credentials |
+| Next.js rewrite hides the client IP or the `Origin` header | Verified in the first spike together with SSE; the IP comes from `X-Forwarded-For` (AC-1.6), and the Origin check (NFR-S3) is tested through the proxy |
 | Redis is a single point of failure for sessions and the queue | AOF on a volume, `noeviction`, healthchecks; fail closed with `503` (NFR-R12); all business data and job status in Postgres, so the sweeper restores the queue |
 | State split between Postgres (job status) and BullMQ (execution) | Postgres is authoritative; BullMQ `jobId` = DB id; enqueue after commit + sweeper; the worker checks that the DB job is still active (and the CV still exists) before and after the LLM call |
 | shadcn's React Aria base is new (July 2026), fewer community examples than Radix | Use only the components the app needs (button, field, input, textarea, dialog, tabs, toast, file trigger); any gap is filled directly with React Aria Components styled with Tailwind |
 | Prisma 7 + raw SQL for row locks | Keep `$queryRaw` usage in one repository module, covered by the integration tests from §5.4 |
 | Grounding check too strict (filters out honest rephrasing) | Only quotes and "atoms" (numbers, dates, proper nouns, skills) are checked, not wording. Thresholds are configurable, and a grounding report is available for debugging |
-| 10 hours for a heavy stack | P0/P1 priorities on requirements; cut P1 features first, never reliability. Cuts are listed in the README |
 | Cost and quota of the reviewers' key | Limits from NFR-S9, source size cap, question cap |
