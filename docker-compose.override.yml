@@ -1,0 +1,133 @@
+# Development mode, merged automatically by `docker compose up`: source is bind-mounted and
+# every app runs in watch mode (web: next dev with HMR; api and worker: tsc --watch + node
+# --watch). Production images: `docker compose -f docker-compose.yml up --build`.
+
+x-dev-build: &dev-build
+  context: .
+  dockerfile: docker/dev.Dockerfile
+
+# The repo from the host, with Linux node_modules from volumes laid over it.
+x-dev-volumes: &dev-volumes
+  - .:/repo
+  - node-modules:/repo/node_modules
+  - node-modules-api:/repo/apps/api/node_modules
+  - node-modules-web:/repo/apps/web/node_modules
+  - node-modules-shared:/repo/packages/shared/node_modules
+  - pnpm-store:/pnpm/store
+
+x-dev-app: &dev-app
+  build: !override
+    <<: *dev-build
+  image: ai-cv-builder-dev
+  working_dir: /repo
+  depends_on: &dev-depends-on
+    deps:
+      condition: service_completed_successfully
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  # Postgres for GUI clients (DataGrip, psql) on the host, localhost only. Redis stays
+  # unpublished (NFR-S1); use RedisInsight on :5540.
+  db:
+    ports:
+      - '127.0.0.1:${DEV_POSTGRES_PORT:-5432}:5432'
+
+  # Installs dependencies into the volumes (fast after the first run: the store is cached).
+  # Its postinstall builds packages/shared and generates the Prisma client.
+  deps:
+    build: *dev-build
+    image: ai-cv-builder-dev
+    volumes: *dev-volumes
+    # The store must be the volume, not a `.pnpm-store` inside the bind-mounted repo.
+    command: ['pnpm', 'install', '--frozen-lockfile', '--store-dir', '/pnpm/store']
+    restart: 'no'
+
+  # Rebuilds packages/shared on change; api, worker, and web pick up its dist.
+  shared:
+    image: ai-cv-builder-dev
+    volumes: *dev-volumes
+    command: ['pnpm', '--filter', '@cv/shared', 'dev']
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+
+  migrate:
+    build: !override
+      <<: *dev-build
+    image: ai-cv-builder-dev
+    volumes: *dev-volumes
+    command: ['pnpm', '--filter', '@cv/api', 'db:deploy']
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *dev-app
+    volumes:
+      - .:/repo
+      - node-modules:/repo/node_modules
+      - node-modules-api:/repo/apps/api/node_modules
+      - node-modules-web:/repo/apps/web/node_modules
+      - node-modules-shared:/repo/packages/shared/node_modules
+      - pnpm-store:/pnpm/store
+      - api-dist:/repo/apps/api/dist
+    command: ['pnpm', '--filter', '@cv/api', 'dev:api']
+    environment:
+      NODE_ENV: development
+    healthcheck:
+      start_period: 60s
+
+  worker:
+    <<: *dev-app
+    volumes:
+      - .:/repo
+      - node-modules:/repo/node_modules
+      - node-modules-api:/repo/apps/api/node_modules
+      - node-modules-web:/repo/apps/web/node_modules
+      - node-modules-shared:/repo/packages/shared/node_modules
+      - pnpm-store:/pnpm/store
+      - worker-dist:/repo/apps/api/dist
+    command: ['pnpm', '--filter', '@cv/api', 'dev:worker']
+    environment:
+      NODE_ENV: development
+    healthcheck:
+      start_period: 60s
+
+  web:
+    <<: *dev-app
+    volumes:
+      - .:/repo
+      - node-modules:/repo/node_modules
+      - node-modules-api:/repo/apps/api/node_modules
+      - node-modules-web:/repo/apps/web/node_modules
+      - node-modules-shared:/repo/packages/shared/node_modules
+      - pnpm-store:/pnpm/store
+      - web-next:/repo/apps/web/.next
+    command: ['pnpm', '--filter', '@cv/web', 'dev']
+    environment:
+      API_INTERNAL_URL: http://api:3001
+      # Same client-IP header as the production image (AC-1.6).
+      NODE_OPTIONS: --require /repo/apps/web/server/forwarded-for.cjs
+    depends_on:
+      <<: *dev-depends-on
+      api:
+        condition: service_healthy
+    healthcheck:
+      start_period: 60s
+
+volumes:
+  node-modules:
+  node-modules-api:
+  node-modules-web:
+  node-modules-shared:
+  pnpm-store:
+  api-dist:
+  worker-dist:
+  web-next:

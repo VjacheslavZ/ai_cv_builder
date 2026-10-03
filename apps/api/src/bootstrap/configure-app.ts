@@ -5,6 +5,7 @@ import { AllExceptionsFilter } from '../common/errors/all-exceptions.filter.js';
 import { createValidationPipe } from '../common/validation/validation.pipe.js';
 import { APP_CONFIG } from '../config/config.module.js';
 import type { AppConfig } from '../config/env.schema.js';
+import { originCheck } from '../common/http/origin-check.js';
 import { bodyParsersExceptAuth } from './body-parsers.js';
 
 /**
@@ -32,6 +33,7 @@ export function configureApp(app: NestExpressApplication): NestExpressApplicatio
       xFrameOptions: { action: 'deny' },
     }),
   );
+  app.use(originCheck(config.auth.webOrigin));
   app.use(bodyParsersExceptAuth(config.http.jsonBodyLimit));
 
   app.setGlobalPrefix('api', { exclude: ['health', 'ready'] });

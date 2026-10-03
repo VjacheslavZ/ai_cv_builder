@@ -9,7 +9,9 @@
   "scripts": {
     "postinstall": "pnpm run codegen",
     "codegen": "pnpm --filter @cv/shared build && pnpm --filter @cv/api db:generate",
-    "dev": "pnpm --parallel --filter \"./apps/*\" --filter @cv/shared dev",
+    "dev": "docker compose up --build",
+    "dev:host": "pnpm --parallel --filter \"./apps/*\" --filter @cv/shared dev",
+    "prod": "docker compose -f docker-compose.yml up --build",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
@@ -18,7 +20,7 @@
     "test": "vitest run",
     "test:unit": "vitest run --project shared --project api-unit --project web",
     "test:int": "vitest run --project api-int",
-    "infra:up": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db redis redisinsight",
+    "infra:up": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --wait db redis redisinsight",
     "infra:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down"
   },
   "devDependencies": {

@@ -5,7 +5,8 @@ import type { AppConfig } from '../config/env.schema.js';
 
 /**
  * - `general`: commands (sessions, rate-limit counters, locks). Fails a command after one
- *   reconnect attempt so callers can fail closed with 503 instead of hanging (NFR-R12).
+ *   reconnect attempt or `REDIS_COMMAND_TIMEOUT_MS`, so callers can fail closed with 503
+ *   instead of hanging (NFR-R12).
  * - `bullmq`: queues and workers. BullMQ requires `maxRetriesPerRequest: null`.
  * - `subscriber`: Pub/Sub only; a subscribed connection cannot run other commands.
  */
@@ -27,6 +28,7 @@ export class RedisConnectionFactory implements OnApplicationShutdown {
   create(kind: RedisConnectionKind, name: string = kind): Redis {
     const connection = new Redis(this.config.redisUrl, {
       ...OPTIONS[kind],
+      ...(kind === 'general' ? { commandTimeout: this.config.timeouts.redisCommandMs } : {}),
       connectionName: `cv:${name}`,
     });
     // Without a listener ioredis reports every failed reconnect as an unhandled error.

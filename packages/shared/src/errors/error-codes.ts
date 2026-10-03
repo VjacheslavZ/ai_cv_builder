@@ -5,6 +5,11 @@
 export const ErrorCode = {
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   UNAUTHORIZED: 'UNAUTHORIZED',
+  /** Sign-in failed. Same code and message for a wrong password and an unknown email (AC-1.3). */
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  EMAIL_TAKEN: 'EMAIL_TAKEN',
+  /** A mutating request from a foreign or missing `Origin` (NFR-S3). */
+  FORBIDDEN: 'FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',
   VERSION_CONFLICT: 'VERSION_CONFLICT',
   ACTIVE_JOB_EXISTS: 'ACTIVE_JOB_EXISTS',

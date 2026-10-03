@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { ArgumentsHost } from '@nestjs/common';
 import { ErrorCode } from '@cv/shared';
+import { APIError } from 'better-auth/api';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { AllExceptionsFilter, toErrorResponse } from './all-exceptions.filter.js';
 import { ApiException } from './api.exception.js';
@@ -68,5 +69,16 @@ describe('AllExceptionsFilter', () => {
     new AllExceptionsFilter().catch(new Error('late'), host);
     expect(res.end).toHaveBeenCalled();
     expect(res.json).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the session lookup fails (NFR-R12)', () => {
+    const lookupFailed = APIError.from('INTERNAL_SERVER_ERROR', {
+      code: 'FAILED_TO_GET_SESSION',
+      message: 'Failed to get session',
+    });
+    expect(toErrorResponse(lookupFailed)).toEqual({
+      status: 503,
+      body: { code: 'SERVICE_UNAVAILABLE', message: 'Service unavailable' },
+    });
   });
 });

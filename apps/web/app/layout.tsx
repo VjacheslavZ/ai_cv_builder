@@ -3,6 +3,7 @@ import { Geist } from 'next/font/google';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Toaster } from '@/components/ui/toast';
+import { Providers } from './providers';
 import './globals.css';
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
@@ -29,7 +30,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               AI CV Builder
             </Link>
           </header>
-          <main className="flex flex-1 flex-col py-6">{children}</main>
+          <main className="flex flex-1 flex-col py-6">
+            <Providers>{children}</Providers>
+          </main>
         </div>
         <Toaster />
       </body>

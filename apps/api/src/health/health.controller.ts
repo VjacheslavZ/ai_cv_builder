@@ -1,5 +1,6 @@
 import { Controller, Get, Logger } from '@nestjs/common';
 import { ErrorCode } from '@cv/shared';
+import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
 import type { Redis } from 'ioredis';
 import { ApiException } from '../common/errors/api.exception.js';
 import { InjectConfig } from '../config/config.module.js';
@@ -16,6 +17,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /** Served outside the `/api` prefix: `/health` (liveness) and `/ready` (Postgres and Redis). */
+@AllowAnonymous()
 @Controller()
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);

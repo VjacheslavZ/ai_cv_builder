@@ -10,6 +10,8 @@ x-api-env: &api-env
   ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5-5}
   # Local-only default; set BETTER_AUTH_SECRET in .env for anything beyond your machine.
   BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-only-secret-do-not-use-in-production}
+  # The browser-facing origin: better-auth baseURL, trusted Origin, Secure cookies unless localhost.
+  WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
 
 services:
   db:
