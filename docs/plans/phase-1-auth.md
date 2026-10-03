@@ -27,7 +27,7 @@
 - [ ] `GET /api/cvs` stub returning `[]` through the ownership pattern, so the dashboard has something to call.
 
 ### apps/web
-- [ ] `/signup` and `/login` pages: react-hook-form + `zodResolver(shared schema)` + shadcn `Field`. React Aria inputs via `Controller`, `validationBehavior="aria"`, `autocomplete="email" / "new-password" / "current-password"`.
+- [ ] `/signup` and `/login` pages: react-hook-form + `zodResolver(shared schema)` + shadcn `Field`. Base UI inputs via `register` / `Controller`, form `noValidate`, `aria-invalid` on errors, `autocomplete="email" / "new-password" / "current-password"`.
 - [ ] Server errors: `400 fields` → `form.setError`. Invalid credentials → the generic "Invalid email or password". `429` → "Too many attempts, try later".
 - [ ] Route protection: Next middleware does a cheap cookie-presence redirect to `/login`; the authoritative check is the API's `401`, handled by `apiFetch`.
 - [ ] Dashboard placeholder at `/` with a "Log out" button.

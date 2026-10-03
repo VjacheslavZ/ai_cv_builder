@@ -61,8 +61,8 @@ These are fixed in Phase 0 so that later phases don't renegotiate them.
 | better-auth | `better-auth-best-practices`, `better-auth-security-best-practices`, `email-and-password-best-practices` |
 | NestJS | `nestjs-best-practices` |
 | Next.js / React | `vercel-react-best-practices` |
-| shadcn on React Aria | `shadcn` |
+| shadcn on Base UI | `shadcn` |
 | Unit / integration tests | `vitest` |
 | Browser checks | `webapp-testing` |
 | Anthropic SDK | built-in `claude-api` |
-| Library docs (BullMQ, ioredis, React Aria, react-pdf, Testcontainers) | `context7-mcp` |
+| Library docs (BullMQ, ioredis, Base UI, react-pdf, Testcontainers) | `context7-mcp` |

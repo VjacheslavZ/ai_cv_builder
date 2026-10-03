@@ -37,7 +37,7 @@
 - [ ] Permanent failure → CV unchanged, answer kept, question → `failed` (AC-9.5).
 
 ### apps/web — editor `/cvs/:id`
-- [ ] One react-hook-form instance over the `CvDocument`; `useFieldArray` for experience, education, bullets, skills. All inputs are React Aria via `Controller`. Dates use month/year inputs with a "Present" option.
+- [ ] One react-hook-form instance over the `CvDocument`; `useFieldArray` for experience, education, bullets, skills. All inputs are Base UI, wired via `register` / `Controller`. Dates use month/year inputs with a "Present" option.
 - [ ] **Autosave** (AC-10.1): diff dirty fields into `set` ops; debounce ~1 s, plus flush on `blur` and on `visibilitychange` → hidden (NFR-M5). One request in flight at a time; queue the next. Status "Saving… / Saved / Error" in an `aria-live` region. Keep this logic in a plain module (no React) so it can be unit-tested.
 - [ ] **AI updates without false conflicts** (AC-10.4): on SSE `section_updated`, refetch the CV, reset the form for that section only, take the new `version` as `baseVersion`, and re-send pending ops automatically if none of them touch the updated section. Highlight the section briefly.
 - [ ] **Real conflicts** (AC-10.4): a `409` (another device, or pending ops that overlap an AI-updated section) keeps the unsaved local values, loads `current`, shows "This CV was changed elsewhere", and offers "Re-apply my changes" (re-send the kept ops on the new `baseVersion`).
