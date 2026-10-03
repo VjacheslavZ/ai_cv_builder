@@ -31,6 +31,8 @@ model User {
   createdAt     DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
   accounts      Account[]
+  cvs           Cv[]
+  jobs          Job[]
 
   @@map("users")
 }
@@ -53,4 +55,186 @@ model Account {
 
   @@index([userId])
   @@map("accounts")
+}
+
+// --- CVs and jobs (Phase 2) ---
+// Every child of `Cv` cascades on delete: deleting a CV erases its source, upload, jobs,
+// questions, reports, and snapshot (AC-12.3, NFR-S11). Enum values match packages/shared.
+
+enum CvStatus {
+  generating
+  ready
+  failed
+}
+
+enum SourceKind {
+  pdf
+  free_text
+  answer
+  manual
+}
+
+enum JobType {
+  generate
+  apply_answer
+}
+
+enum JobStatus {
+  queued
+  running
+  completed
+  failed
+  cancelled
+}
+
+enum JobStage {
+  queued
+  extracting
+  generating
+  validating
+  applying
+  completed
+  failed
+}
+
+enum QuestionType {
+  missing
+  vague
+  unverified
+}
+
+enum QuestionStatus {
+  open
+  applying
+  answered
+  dismissed
+  resolved
+  failed
+}
+
+model Cv {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String   @db.Uuid
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String
+  targetRole     String
+  status         CvStatus @default(generating)
+  failureCode    String?
+  /// `CvWarning[]` (AC-4.3).
+  warnings       Json     @default("[]")
+  /// `CvDocument`, written whole; `null` until the first generation completes.
+  document       Json?
+  /// Bumped on every write (optimistic locking for PATCH).
+  version        Int      @default(0)
+  /// Bumped on AI writes only (fencing for apply_answer, AC-9.7).
+  aiRevision     Int      @default(0)
+  idempotencyKey String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  sources          SourceText[]
+  pdfUpload        PdfUpload?
+  jobs             Job[]
+  questions        Question[]
+  groundingReports GroundingReport[]
+  aiSnapshot       AiSnapshot?
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("cvs")
+}
+
+/// The facts (SPEC §0). `manual` rows are written only when Regenerate resets edits (Phase 7).
+model SourceText {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cvId      String     @db.Uuid
+  cv        Cv         @relation(fields: [cvId], references: [id], onDelete: Cascade)
+  kind      SourceKind
+  text      String
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@index([cvId, createdAt])
+  @@map("source_texts")
+}
+
+/// Temporary: deleted with the extracted text, after a permanent extraction failure, or by the
+/// sweeper after PDF_RETENTION_MS (SPEC §1).
+model PdfUpload {
+  cvId      String   @id @db.Uuid
+  cv        Cv       @relation(fields: [cvId], references: [id], onDelete: Cascade)
+  bytes     Bytes
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@map("pdf_uploads")
+}
+
+/// One active generation per CV is enforced by the partial unique index
+/// `jobs_one_active_generation_per_cv` (raw SQL in the migration; Prisma ignores it).
+model Job {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cvId         String    @db.Uuid
+  cv           Cv        @relation(fields: [cvId], references: [id], onDelete: Cascade)
+  userId       String    @db.Uuid
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type         JobType
+  status       JobStatus @default(queued)
+  stage        JobStage  @default(queued)
+  attempts     Int       @default(0)
+  errorCode    String?
+  errorMessage String?
+  questionId   String?   @db.Uuid
+  question     Question? @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  deadlineAt   DateTime  @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([status, createdAt])
+  @@index([userId, status])
+  @@index([cvId, createdAt])
+  @@map("jobs")
+}
+
+model Question {
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cvId      String         @db.Uuid
+  cv        Cv             @relation(fields: [cvId], references: [id], onDelete: Cascade)
+  path      String
+  type      QuestionType
+  priority  Int
+  text      String
+  status    QuestionStatus @default(open)
+  answer    String?
+  createdAt DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime       @updatedAt @db.Timestamptz(3)
+  jobs      Job[]
+
+  @@index([cvId, status])
+  @@map("questions")
+}
+
+/// Filled in by Phase 3: what grounding removed (counts and paths, no CV text).
+model GroundingReport {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cvId      String   @db.Uuid
+  cv        Cv       @relation(fields: [cvId], references: [id], onDelete: Cascade)
+  jobId     String?  @db.Uuid
+  removed   Int      @default(0)
+  items     Json     @default("[]")
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([cvId, createdAt])
+  @@map("grounding_reports")
+}
+
+/// Filled in by Phase 4: the section before the last AI change, for undo (Phase 7).
+model AiSnapshot {
+  cvId       String   @id @db.Uuid
+  cv         Cv       @relation(fields: [cvId], references: [id], onDelete: Cascade)
+  path       String
+  section    Json
+  aiRevision Int
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@map("ai_snapshots")
 }
