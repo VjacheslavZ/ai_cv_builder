@@ -6,6 +6,8 @@
   "scripts": {
     "build": "prisma generate && tsc -p tsconfig.build.json",
     "dev": "pnpm build && concurrently -k -n tsc,api,worker \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\" \"node --watch dist/main.js\" \"node --watch dist/worker.js\"",
+    "dev:api": "tsc -p tsconfig.build.json && concurrently -k -n tsc,api \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\" \"node --watch dist/main.js\"",
+    "dev:worker": "tsc -p tsconfig.build.json && concurrently -k -n tsc,worker \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\" \"node --watch dist/worker.js\"",
     "start": "node dist/main.js",
     "start:worker": "node dist/worker.js",
     "typecheck": "prisma generate && tsc --noEmit",
@@ -14,12 +16,15 @@
     "db:deploy": "prisma migrate deploy"
   },
   "dependencies": {
+    "@better-auth/redis-storage": "^1.7.7",
     "@cv/shared": "workspace:*",
     "@nestjs/common": "^12.1.2",
     "@nestjs/core": "^12.1.2",
     "@nestjs/platform-express": "^12.1.2",
     "@prisma/adapter-pg": "~7.10.0",
     "@prisma/client": "~7.10.0",
+    "@thallesp/nestjs-better-auth": "^2.8.0",
+    "better-auth": "^1.7.7",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
     "ioredis": "^5.11.1",

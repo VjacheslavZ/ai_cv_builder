@@ -40,14 +40,17 @@ async function readError(res: Response): Promise<ApiError> {
   }
   return res.status === 401
     ? { code: ErrorCode.UNAUTHORIZED, message: 'Authentication required' }
-    : res.status >= 500
-      ? { code: ErrorCode.SERVICE_UNAVAILABLE, message: 'Service unavailable' }
-      : { code: ErrorCode.INTERNAL, message: 'Unexpected response' };
+    : res.status === 429
+      ? { code: ErrorCode.RATE_LIMITED, message: 'Too many attempts, try later' }
+      : res.status >= 500
+        ? { code: ErrorCode.SERVICE_UNAVAILABLE, message: 'Service unavailable' }
+        : { code: ErrorCode.INTERNAL, message: 'Unexpected response' };
 }
 
 /**
  * Calls the API through the same-origin `/api` rewrite. Sends the session cookie, parses
- * JSON, throws `ApiRequestError` on non-2xx, and sends the user to /login on 401.
+ * JSON, throws `ApiRequestError` on non-2xx, and sends the user to /login on
+ * `401 UNAUTHORIZED`.
  */
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
   const { json, headers, ...init } = options;
@@ -72,7 +75,8 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
 
   if (!res.ok) {
     const error = await readError(res);
-    if (res.status === 401) redirectToLogin();
+    // Only a missing or expired session; a failed sign-in (INVALID_CREDENTIALS) is also a 401.
+    if (error.code === ErrorCode.UNAUTHORIZED) redirectToLogin();
     throw new ApiRequestError(res.status, error);
   }
 

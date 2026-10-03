@@ -5,9 +5,12 @@ Rules and pointers for working in this repo. The SPEC is the source of truth; th
 ## Commands
 
 - `pnpm install` — also builds `packages/shared` and runs `prisma generate` (root `postinstall`).
-- `pnpm dev` — shared (watch), api :3001, worker, web :3000. Needs `pnpm infra:up` (Postgres + Redis on localhost) and a `.env`.
+- `docker compose up` (= `pnpm dev`) — development in Docker with hot reload: `docker-compose.override.yml` bind-mounts the repo; web runs `next dev`, api/worker run `tsc --watch` + `node --watch`, `shared` rebuilds packages/shared. `node_modules`, `apps/api/dist`, and `apps/web/.next` are Docker volumes. New dependency: `docker compose run --rm deps`, then restart the apps. Migrations: `docker compose exec api pnpm --filter @cv/api db:migrate`.
+- Production images: `docker compose -f docker-compose.yml up --build` (`pnpm prod`); `docker-compose.override.yml` must not leak into it, so production-only settings stay in `docker-compose.yml`.
+- `pnpm dev:host` runs the apps on the host instead (needs `pnpm infra:up` and the compose app containers stopped).
 - `pnpm typecheck`, `pnpm lint`, `pnpm format`.
 - `pnpm test:unit` (no Docker), `pnpm test:int` (Testcontainers, needs Docker), `pnpm test` (both).
+- better-auth models: regenerate with `pnpm dlx auth@<better-auth version> generate --config <file> --output prisma/schema.prisma` against a minimal config with the same `database`/`secondaryStorage`/plugins, then re-apply the plural `@@map` and `Timestamptz` edits and add a migration.
 - Prisma (from `apps/api`): `pnpm db:migrate` (create + apply, dev), `pnpm db:deploy`, `pnpm db:generate`. Config: `apps/api/prisma.config.ts`.
 - Full stack: `docker compose up` (needs `ANTHROPIC_API_KEY` in `.env`). `/ready` is not proxied by web; check `docker compose ps`.
 - Redis GUI: RedisInsight at http://localhost:5540, already connected to `redis`. Starts with `docker compose up` and `pnpm infra:up` (service `redisinsight`, localhost only); it is a dev aid, the app never depends on it.
@@ -20,6 +23,7 @@ Rules and pointers for working in this repo. The SPEC is the source of truth; th
 - Every interval, timeout, and limit comes from `apps/api/src/config/env.schema.ts`; never hard-code one.
 - Nest DI reads constructor parameter types at runtime: in `apps/api` use value imports for injected classes, not `import type`.
 - `apps/api` is ESM: relative imports end in `.js`.
+- Never name a directory `cvs` (any case) in `apps/api`: `pnpm deploy` (npm-packlist) drops `CVS` directories, so it silently vanishes from the docker image. CV code lives in `src/cv/`.
 
 ## Invariants
 
@@ -27,7 +31,11 @@ Rules and pointers for working in this repo. The SPEC is the source of truth; th
 - Errors leave the API only as `{ code, message, fields? }` with a code from `packages/shared` (`ErrorCode`). Throw `ApiException`; anything else becomes `500 INTERNAL`.
 - No secrets in the client bundle: never a `NEXT_PUBLIC_` secret; web code reads no server env (lint rule).
 - No PII or CV text in logs: no CV content, answers, emails, cookies, or keys. Log ids, stages, durations, counts.
-- `/api/auth/*` bodies are never parsed by our middleware (better-auth reads the raw stream).
+- `/api/auth/*` bodies are never parsed by our middleware (better-auth reads the raw stream). Its responses go through `rewriteAuthResponses` (`apps/api/src/auth/auth-responses.ts`): errors get our shape, and the session token never appears in a body.
+- **Routes are protected by default** (global `AuthGuard` from `@thallesp/nestjs-better-auth`). `@AllowAnonymous()` is the explicit, rare exception (`/health`, `/ready`). Handlers get the user only via `@CurrentUser()` → `{ id }`.
+- **Ownership:** repositories always take `userId` (`findOwned(id, userId)`, `listOwned(userId)`, `deleteOwned(id, userId)`). Not found **or** not owned → `404 NOT_FOUND` (`ownedOrNotFound`), never `403`. The owner comes only from the session; never read `userId`/`ownerId` from a body, param, or query (the Zod pipe strips them).
+- **Redis failure → `503`:** a failed session lookup fails closed as `503 SERVICE_UNAVAILABLE`, never as anonymous or authenticated (mapped in `AllExceptionsFilter`). Keep better-auth's `cookieCache` off so every request checks Redis.
+- Mutating non-auth requests need `Origin` = `WEB_ORIGIN` and a JSON or multipart body (`common/http/origin-check.ts`); tests send `Origin: TEST_ORIGIN`.
 - SSE through the Next rewrite dies after 30 s of silence: send a heartbeat well under that.
 - The Next rewrite does not forward the client IP; `apps/web/server/forwarded-for.cjs` (preloaded in the web image) sets `X-Forwarded-For` from the socket and overwrites client-supplied values. Behind a trusted load balancer it must append instead.
 

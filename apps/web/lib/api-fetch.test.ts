@@ -79,4 +79,20 @@ describe('apiFetch', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
     await expect(apiFetch('/api/cvs/1', { method: 'DELETE' })).resolves.toBeUndefined();
   });
+
+  it('does not redirect on a failed sign-in', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('window', { location: { pathname: '/signup', assign } });
+    respond(401, { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' });
+
+    await expect(apiFetch('/api/auth/sign-in/email')).rejects.toMatchObject({
+      code: 'INVALID_CREDENTIALS',
+    });
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('reads a bare 429 as RATE_LIMITED', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('slow down', { status: 429 })));
+    await expect(apiFetch('/api/cvs')).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+  });
 });

@@ -17,14 +17,35 @@ cp .env.example .env
 docker compose up
 ```
 
-Open http://localhost:3000. The first start builds the images and applies database
-migrations; `docker compose ps` shows all services `healthy` once ready.
+Open http://localhost:3000. The first start builds the images, installs dependencies, and
+applies database migrations; `docker compose ps` shows all services `healthy` once ready.
+
+`docker compose up` runs the app in **development mode** with hot reload (it merges
+`docker-compose.override.yml`). For the production images, without the override:
+
+```sh
+docker compose -f docker-compose.yml up --build   # or: pnpm prod
+```
 
 Redis GUI: http://localhost:5540 (RedisInsight, already connected as `ai-cv-builder`; accept its
 terms on first open). Published on localhost only; change the port with `REDISINSIGHT_PORT`.
 
 `ANTHROPIC_API_KEY` is the only required value. `BETTER_AUTH_SECRET` has a local-only default
-in `docker-compose.yml`; set your own in `.env` for anything beyond your machine.
+in `docker-compose.yml` (and outside `NODE_ENV=production` on the host); set your own in `.env`
+for anything beyond your machine.
+
+## Accounts and sessions
+
+Email and password via [better-auth](https://better-auth.com), served by the API at `/api/auth/*`
+through the web origin. Users and password hashes (scrypt) are in Postgres; sessions and auth
+rate-limit counters are only in Redis, so logout revokes a session immediately and a Redis wipe
+only logs everyone out. The session cookie is `httpOnly`, `SameSite=Lax`, and `Secure` unless
+`WEB_ORIGIN` is localhost. Every API route requires a session unless explicitly public, and a
+user only ever sees their own data (another user's id answers `404`). If Redis is down,
+authenticated calls answer `503` instead of guessing.
+
+`WEB_ORIGIN` (default `http://localhost:3000`) must be the URL users open: it is the only
+origin allowed to send mutating requests.
 
 ## Monorepo layout
 
@@ -37,21 +58,37 @@ packages/
 docs/         SPEC and phase plans
 ```
 
-## Development on the host
+## Development
 
-Node 24 (`.nvmrc`) and pnpm 11.
+Everything runs in Docker: `docker compose up` (or `pnpm dev`). The repo is bind-mounted into
+the containers, so edits apply without rebuilding images:
 
-```sh
-pnpm install            # also builds packages/shared and generates the Prisma client
-cp .env.example .env    # DATABASE_URL / REDIS_URL point at localhost
-pnpm infra:up           # db + redis on 127.0.0.1, RedisInsight on :5540
-pnpm --filter @cv/api db:deploy
-pnpm dev                # shared (watch), api :3001, worker, web :3000
-```
+- `web` runs `next dev`: components hot-reload in the browser.
+- `api` and `worker` run `tsc --watch` + `node --watch`: they restart a few seconds after a save.
+- `shared` rebuilds `packages/shared`; api and web pick up the change.
+
+`node_modules` live in Docker volumes (Linux binaries), installed by the one-shot `deps`
+service on every `up`. After adding a dependency (`pnpm add …` on the host updates the
+lockfile), run `docker compose run --rm deps` and `docker compose restart api worker web`.
+
+Database GUI (DataGrip, psql): Postgres is published on `127.0.0.1:${DEV_POSTGRES_PORT:-5432}`
+in development mode, database `cv`, user `cv`, password `cv`. Redis is not published; use
+RedisInsight.
+
+Database changes: edit `apps/api/prisma/schema.prisma`, then
+`docker compose exec api pnpm --filter @cv/api db:migrate` (creates and applies a migration
+and regenerates the client) and `docker compose restart api worker`.
+
+Running the apps on the host instead (Node 24, pnpm 11): `pnpm install`, `pnpm infra:up`
+(Postgres and Redis on 127.0.0.1; set `DEV_POSTGRES_PORT` / `DEV_REDIS_PORT` and the matching
+`DATABASE_URL` / `REDIS_URL` in `.env` if the ports are taken), `pnpm --filter @cv/api db:deploy`,
+then `pnpm dev:host`. Stop the compose `web`, `api`, and `worker` first: they hold :3000.
 
 | Script                             | What it does                                        |
 | ---------------------------------- | --------------------------------------------------- |
-| `pnpm dev`                         | All apps in watch mode                              |
+| `pnpm dev`                         | `docker compose up --build`: dev mode, hot reload   |
+| `pnpm prod`                        | Production images (`-f docker-compose.yml` only)    |
+| `pnpm dev:host`                    | Apps on the host in watch mode (needs `infra:up`)   |
 | `pnpm build`                       | Build every package                                 |
 | `pnpm typecheck`                   | `tsc` in every package                              |
 | `pnpm lint` / `pnpm format`        | ESLint / Prettier                                   |

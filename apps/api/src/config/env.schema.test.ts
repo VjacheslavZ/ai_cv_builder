@@ -38,4 +38,23 @@ describe('loadConfig', () => {
     expect(message).toMatch(/BETTER_AUTH_SECRET/);
     expect(message).not.toContain(secret);
   });
+
+  it('requires BETTER_AUTH_SECRET in production only', () => {
+    expect(() => loadConfig({ ...base, NODE_ENV: 'production' })).toThrow(/BETTER_AUTH_SECRET/);
+    expect(() => loadConfig({ ...base, NODE_ENV: 'production', BETTER_AUTH_SECRET: '' })).toThrow(
+      /BETTER_AUTH_SECRET/,
+    );
+    expect(loadConfig(base).auth.secret.length).toBeGreaterThanOrEqual(32);
+  });
+
+  it('marks cookies Secure everywhere but localhost', () => {
+    expect(loadConfig(base).auth).toMatchObject({
+      webOrigin: 'http://localhost:3000',
+      secureCookies: false,
+    });
+    expect(loadConfig({ ...base, WEB_ORIGIN: 'https://cv.example.com/' }).auth).toMatchObject({
+      webOrigin: 'https://cv.example.com',
+      secureCookies: true,
+    });
+  });
 });

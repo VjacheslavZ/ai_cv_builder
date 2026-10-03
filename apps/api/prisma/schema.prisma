@@ -10,4 +10,47 @@ datasource db {
   provider = "postgresql"
 }
 
-// Models arrive with Phase 1 (auth) and Phase 2 (CVs, jobs, questions).
+// --- Auth (better-auth) ---
+// Email and password only: `accounts` keeps one `credential` row per user with the password
+// hash. The OAuth columns (tokens, scope) stay unused but must exist: better-auth validates the
+// database against every field of its `account` model at startup (SCHEMA_MISMATCH otherwise).
+// Generated with the better-auth CLI (`auth generate`), then mapped to plural table names and
+// timestamptz. Sessions and verification tokens live only in Redis (`secondaryStorage`), so
+// there are no `session` / `verification` models. Model and field names are what better-auth's
+// Prisma adapter expects: keep them when regenerating.
+
+model User {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // better-auth's `name` (`user.fields.name`); lastName is an `additionalFields` entry. Both are
+  // required on sign-up; the defaults cover accounts created before the fields existed.
+  firstName     String    @default("")
+  lastName      String    @default("")
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  accounts      Account[]
+
+  @@map("users")
+}
+
+model Account {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId             String
+  providerId            String
+  userId                String    @db.Uuid
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([userId])
+  @@map("accounts")
+}

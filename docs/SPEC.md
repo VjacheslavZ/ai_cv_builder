@@ -43,6 +43,7 @@ Status: v1.1.
 | 16 | UI kit | Tailwind CSS + shadcn/ui initialized on the **Base UI** base (`shadcn init --base base`). No Radix: one primitives layer. |
 | 17 | Form validation | react-hook-form + Zod (`zodResolver`) with shadcn `Field` components. Zod schemas are shared between web and api. Base UI's built-in field validation is not used: react-hook-form is the only validation state, and errors are passed via `aria-invalid` and `FieldError`. |
 | 18 | Job queue | **BullMQ on Redis** for dispatch, retries, backoff, and stalled-job detection. Postgres keeps the job status the user sees. |
+| 19 | Client data fetching | **TanStack Query** in the web app, on the client only, through `apiFetch` (same-origin `/api` rewrite, cookie, `{ code, message }` errors, 401 → login). No retries on 4xx; mutations are not retried. SSE events update the query cache. Autosave with optimistic locking (FR-10) stays a separate, unit-tested module; the cache is cleared on login and logout. |
 
 **Assumptions**
 - The original PDF is **not stored long-term**: the bytes are kept in a temporary Postgres table (written in the same transaction as the CV) only until the worker extracts the text, then deleted. They are also deleted after a permanent extraction failure, and by the sweeper 24 h after upload at the latest. Less personal data, no file storage, and no large payloads in Redis.
@@ -72,7 +73,7 @@ Priorities:
 
 **AC-1.1 Sign up**
 - **Given** the user is not logged in
-- **When** they enter a new email and a password of 8 to 128 characters and submit the form
+- **When** they enter their first and last name (each 1 to 100 characters), a new email, and a password of 8 to 128 characters and submit the form
 - **Then** the account is created, an httpOnly session cookie is set, and the user lands on the dashboard
 
 **AC-1.2 Email already taken**

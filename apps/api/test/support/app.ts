@@ -7,6 +7,9 @@ import { configureApp } from '../../src/bootstrap/configure-app.js';
 import { APP_CONFIG } from '../../src/config/config.module.js';
 import { loadConfig } from '../../src/config/env.schema.js';
 
+/** The web origin the test app trusts; send it as `Origin` on mutating requests. */
+export const TEST_ORIGIN = 'http://localhost:3000';
+
 export interface TestAppOptions {
   databaseUrl: string;
   /** Defaults to the shared Redis container. */
@@ -25,6 +28,8 @@ export async function createTestApp(options: TestAppOptions): Promise<NestExpres
     DATABASE_URL: options.databaseUrl,
     REDIS_URL: options.redisUrl ?? inject('redisUrl'),
     READY_CHECK_TIMEOUT_MS: '1000',
+    REDIS_COMMAND_TIMEOUT_MS: '1000',
+    WEB_ORIGIN: TEST_ORIGIN,
     ...options.env,
   });
 

@@ -4,6 +4,9 @@ import { ErrorCode, type ApiError } from '@cv/shared';
 const DEFAULT_STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   [ErrorCode.VALIDATION_ERROR]: HttpStatus.BAD_REQUEST,
   [ErrorCode.UNAUTHORIZED]: HttpStatus.UNAUTHORIZED,
+  [ErrorCode.INVALID_CREDENTIALS]: HttpStatus.UNAUTHORIZED,
+  [ErrorCode.EMAIL_TAKEN]: HttpStatus.UNPROCESSABLE_ENTITY,
+  [ErrorCode.FORBIDDEN]: HttpStatus.FORBIDDEN,
   [ErrorCode.NOT_FOUND]: HttpStatus.NOT_FOUND,
   [ErrorCode.VERSION_CONFLICT]: HttpStatus.CONFLICT,
   [ErrorCode.ACTIVE_JOB_EXISTS]: HttpStatus.CONFLICT,

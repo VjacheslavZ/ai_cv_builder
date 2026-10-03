@@ -1,14 +1,15 @@
-import { Body, Controller, Get, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import type { Request } from 'express';
+import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { createTestApp } from './support/app.js';
+import { createTestApp, TEST_ORIGIN } from './support/app.js';
 import { createTestDatabase, type TestDatabase } from './support/database.js';
 
 const echoSchema = z.object({ role: z.string().min(1).max(10) });
 
+@AllowAnonymous()
 @Controller('test')
 class TestController {
   @Post('echo')
@@ -27,15 +28,6 @@ class TestController {
   }
 }
 
-/** Stands in for better-auth: it must receive an unread body stream. */
-@Controller('auth')
-class AuthProbeController {
-  @Post('probe')
-  probe(@Req() req: Request) {
-    return { parsed: req.body !== undefined, readable: req.readable };
-  }
-}
-
 describe('HTTP pipeline', () => {
   let db: TestDatabase;
   let app: NestExpressApplication;
@@ -45,7 +37,7 @@ describe('HTTP pipeline', () => {
     app = await createTestApp({
       databaseUrl: db.url,
       env: { JSON_BODY_LIMIT: '2kb' },
-      controllers: [TestController, AuthProbeController],
+      controllers: [TestController],
     });
   });
 
@@ -58,20 +50,19 @@ describe('HTTP pipeline', () => {
     it('parses JSON on non-auth routes', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/test/echo')
+        .set('Origin', TEST_ORIGIN)
         .send({ hello: 'world', nested: { n: 1 } });
       expect(res.status).toBe(201);
       expect(res.body).toEqual({ body: { hello: 'world', nested: { n: 1 } } });
     });
 
-    it('leaves /api/auth/* bodies unparsed', async () => {
-      const res = await request(app.getHttpServer()).post('/api/auth/probe').send({ a: 1 });
-      expect(res.status).toBe(201);
-      expect(res.body).toEqual({ parsed: false, readable: true });
-    });
+    // `/api/auth/*` bodies reaching better-auth unparsed is covered by auth.int.test.ts:
+    // sign-up and sign-in only work if our parsers left the stream alone.
 
     it('rejects malformed JSON with VALIDATION_ERROR', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/test/echo')
+        .set('Origin', TEST_ORIGIN)
         .set('Content-Type', 'application/json')
         .send('{"broken":');
       expect(res.status).toBe(400);
@@ -81,6 +72,7 @@ describe('HTTP pipeline', () => {
     it('rejects bodies over the limit with PAYLOAD_TOO_LARGE', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/test/echo')
+        .set('Origin', TEST_ORIGIN)
         .send({ text: 'x'.repeat(4096) });
       expect(res.status).toBe(413);
       expect(res.body.code).toBe('PAYLOAD_TOO_LARGE');
@@ -91,6 +83,7 @@ describe('HTTP pipeline', () => {
     it('strips unknown keys', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/test/validated')
+        .set('Origin', TEST_ORIGIN)
         .send({ role: 'Dev', userId: 'someone-else' });
       expect(res.status).toBe(201);
       expect(res.body).toEqual({ body: { role: 'Dev' } });
@@ -99,6 +92,7 @@ describe('HTTP pipeline', () => {
     it('returns 400 { code, message, fields }', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/test/validated')
+        .set('Origin', TEST_ORIGIN)
         .send({ role: 'way too long for ten' });
       expect(res.status).toBe(400);
       expect(res.body).toMatchObject({
