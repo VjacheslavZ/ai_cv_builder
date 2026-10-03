@@ -9,3 +9,5 @@ allowBuilds:
   cpu-features: false
   protobufjs: false
   ssh2: false
+  # Optional native msgpack accelerator pulled in by bullmq; the JS fallback is enough.
+  msgpackr-extract: false

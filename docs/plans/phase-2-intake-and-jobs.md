@@ -22,38 +22,38 @@
 ## Scope
 
 ### packages/shared
-- [ ] `createCvSchema`: role 1–100 chars, text ≤ 20,000, at least one of text/file (AC-3.2, AC-3.3).
-- [ ] Job/stage enums, `JobStatusDto`, SSE event union (`snapshot`, `stage`, `completed`, `failed`, `section_updated`, `heartbeat`).
-- [ ] `CvDocument` schema (contact, summary, experience[], education[], skills[]) with UUIDs on entries, bullets, links, and skills; dates as `{ start, end }` with `YYYY` / `YYYY-MM` / `present` (SPEC glossary). Manual edits are tracked as an `editedPaths: string[]` set or a per-field `userEdited` flag: **pick one now**, Phase 4 depends on it.
-- [ ] Field-path schema covering both field paths and list/section paths (`experience.<id>.bullets`, `education`).
+- [x] `createCvSchema`: role 1–100 chars, text ≤ 20,000, at least one of text/file (AC-3.2, AC-3.3).
+- [x] Job/stage enums, `JobStatusDto`, SSE event union (`snapshot`, `stage`, `completed`, `failed`, `section_updated`, `heartbeat`).
+- [x] `CvDocument` schema (contact, summary, experience[], education[], skills[]) with UUIDs on entries, bullets, links, and skills; dates as `{ start, end }` with `YYYY` / `YYYY-MM` / `present` (SPEC glossary). Manual edits are tracked as an `editedPaths: string[]` set or a per-field `userEdited` flag: **pick one now**, Phase 4 depends on it.
+- [x] Field-path schema covering both field paths and list/section paths (`experience.<id>.bullets`, `education`).
 
 ### apps/api — HTTP
-- [ ] `POST /api/cvs` (multipart): multer `memoryStorage`, `limits: { fileSize: 10 MB, files: 1 }` → `413`; MIME + `%PDF-` signature → `415` (AC-4.2); Zod for the fields → `400`.
-- [ ] Generation limits (NFR-S9), applied to create now and to retry/regenerate later: ≤ 2 active **generation** jobs per user counted in Postgres; ≤ 20 generations/hour via `INCR rl:gen:{userId}:{hour}` + `EXPIRE 3600` → `429`.
-- [ ] One interactive transaction: insert `Cv`, `SourceText(free_text)`, `PdfUpload`, `Job(queued)`. A unique violation on `idempotencyKey` → return the **existing** `{ cvId, jobId }` with the same status code (AC-3.4).
-- [ ] **After commit**, `queue.add('generate', { jobId }, { jobId })` (payload = ids only; BullMQ `jobId` = DB id). An enqueue failure is logged and left to the sweeper; the response is still `202` in under 1 s (AC-3.1).
-- [ ] `GET /api/cvs` (list: title, status, open-question count, `updatedAt`, newest first, AC-12.1), `GET /api/cvs/:id` (document, questions, active jobs, warnings, version), `DELETE /api/cvs/:id` (AC-12.3).
-- [ ] `GET /api/jobs/:id` (fallback status, ownership-checked).
-- [ ] `GET /api/cvs/:id/events` (SSE): ownership check → send a `snapshot` from Postgres → stream live events from one shared Redis subscriber (`cv:{cvId}:events`, fanned out in-process) → `heartbeat` every 15 s. Clean up on disconnect (AC-5.1).
+- [x] `POST /api/cvs` (multipart): multer `memoryStorage`, `limits: { fileSize: 10 MB, files: 1 }` → `413`; MIME + `%PDF-` signature → `415` (AC-4.2); Zod for the fields → `400`.
+- [x] Generation limits (NFR-S9), applied to create now and to retry/regenerate later: ≤ 2 active **generation** jobs per user counted in Postgres; ≤ 20 generations/hour via `INCR rl:gen:{userId}:{hour}` + `EXPIRE 3600` → `429`.
+- [x] One interactive transaction: insert `Cv`, `SourceText(free_text)`, `PdfUpload`, `Job(queued)`. A unique violation on `idempotencyKey` → return the **existing** `{ cvId, jobId }` with the same status code (AC-3.4).
+- [x] **After commit**, `queue.add('generate', { jobId }, { jobId })` (payload = ids only; BullMQ `jobId` = DB id). An enqueue failure is logged and left to the sweeper; the response is still `202` in under 1 s (AC-3.1).
+- [x] `GET /api/cvs` (list: title, status, open-question count, `updatedAt`, newest first, AC-12.1), `GET /api/cvs/:id` (document, questions, active jobs, warnings, version), `DELETE /api/cvs/:id` (AC-12.3).
+- [x] `GET /api/jobs/:id` (fallback status, ownership-checked).
+- [x] `GET /api/cvs/:id/events` (SSE): ownership check → send a `snapshot` from Postgres → stream live events from one shared Redis subscriber (`cv:{cvId}:events`, fanned out in-process) → `heartbeat` every 15 s. Clean up on disconnect (AC-5.1).
 
 ### apps/api — worker
-- [ ] BullMQ `Worker` on queue `cv-jobs`, concurrency 2–4. **Keep `lockDuration` near the default (30 s):** BullMQ renews locks automatically while the event loop is free, so the 120 s LLM call needs no long lock, and a crashed worker is detected quickly (AC-5.7). `maxStalledCount` 1–2. Log every `stalled` event.
-- [ ] Job defaults: `attempts: 3`, exponential backoff with jitter. Permanent errors → `UnrecoverableError` (NFR-R3).
-- [ ] **At-least-once:** a job may run twice. Before each stage and before the final write, check the DB job is still active **and** the CV still exists; otherwise stop quietly (AC-5.9). On delete, the API also removes the waiting BullMQ job.
-- [ ] Stage transitions: update `Job.stage` in Postgres → commit → publish to `cv:{cvId}:events`.
-- [ ] **PDF extraction** in a `worker_thread` with `resourceLimits` and a 15 s timeout (`terminate()` on expiry), using `pdfjs-dist` / `unpdf`. The event loop is never blocked. Rejects > 10 pages, encrypted, and corrupted files with a clear code and deletes the `PdfUpload`. < ~200 meaningful characters → `PDF_NO_TEXT`, or continue with free text and add a warning to `Cv.warnings` (AC-4.1–4.4). Save text + delete `PdfUpload` in one transaction.
-- [ ] `LlmClient` interface + `FakeLlmClient` with scripted scenarios (valid CV, invalid output, fabricated facts, transient error, permanent error, slow), see [testing.md](testing.md). The generate pipeline runs `extracting → generating → validating → completed` with the fake.
-- [ ] Result write: one transaction under `SELECT … FOR UPDATE` on the CV: write the document, `version + 1`, `aiRevision + 1`, `status = ready`, job `completed`. Results are written whole, never appended (NFR-R6, R7).
-- [ ] **Sweeper** (interval from config, default 30 s; in the worker, guarded by a Redis lock so only one instance runs it):
+- [x] BullMQ `Worker` on queue `cv-jobs`, concurrency 2–4. **Keep `lockDuration` near the default (30 s):** BullMQ renews locks automatically while the event loop is free, so the 120 s LLM call needs no long lock, and a crashed worker is detected quickly (AC-5.7). `maxStalledCount` 1–2. Log every `stalled` event.
+- [x] Job defaults: `attempts: 3`, exponential backoff with jitter. Permanent errors → `UnrecoverableError` (NFR-R3).
+- [x] **At-least-once:** a job may run twice. Before each stage and before the final write, check the DB job is still active **and** the CV still exists; otherwise stop quietly (AC-5.9). On delete, the API also removes the waiting BullMQ job.
+- [x] Stage transitions: update `Job.stage` in Postgres → commit → publish to `cv:{cvId}:events`.
+- [x] **PDF extraction** in a `worker_thread` with `resourceLimits` and a 15 s timeout (`terminate()` on expiry), using `pdfjs-dist` / `unpdf`. The event loop is never blocked. Rejects > 10 pages, encrypted, and corrupted files with a clear code and deletes the `PdfUpload`. < ~200 meaningful characters → `PDF_NO_TEXT`, or continue with free text and add a warning to `Cv.warnings` (AC-4.1–4.4). Save text + delete `PdfUpload` in one transaction.
+- [x] `LlmClient` interface + `FakeLlmClient` with scripted scenarios (valid CV, invalid output, fabricated facts, transient error, permanent error, slow), see [testing.md](testing.md). The generate pipeline runs `extracting → generating → validating → completed` with the fake.
+- [x] Result write: one transaction under `SELECT … FOR UPDATE` on the CV: write the document, `version + 1`, `aiRevision + 1`, `status = ready`, job `completed`. Results are written whole, never appended (NFR-R6, R7).
+- [x] **Sweeper** (interval from config, default 30 s; in the worker, guarded by a Redis lock so only one instance runs it):
   - re-enqueue jobs `queued` for > 30 s, and jobs `running` in Postgres that no longer exist in BullMQ, with `jobId` = DB id (AC-5.7a);
   - fail jobs past `deadlineAt` (10 min after creation) with `JOB_TIMEOUT` (NFR-R4);
   - delete `PdfUpload` rows older than 24 h.
-- [ ] Graceful shutdown: on `SIGTERM` → `worker.close()`, wait ≤ 30 s (NFR-R10).
+- [x] Graceful shutdown: on `SIGTERM` → `worker.close()`, wait ≤ 30 s (NFR-R10).
 
 ### apps/web
-- [ ] Dashboard: list with status badge, open-question count, date; "New CV" button; delete with a confirm dialog.
-- [ ] New CV form: role input + Tabs ("Upload PDF" with a hidden `<input type="file" accept="application/pdf">` opened by a Button + a drag-and-drop zone on desktop / "Paste text") (NFR-M4). Sends an `Idempotency-Key` (UUID generated once per form instance). Maps `400 fields` via `setError`.
-- [ ] Progress screen `/cvs/:id`: `EventSource` + stage list with `aria-live`; on `visibilitychange` (visible) or `error` → reconnect or `GET /api/jobs/:id` (AC-5.4, NFR-M5). Shows "Still working…" on retries and the failure reason + "Retry" (button wired in Phase 5). Shows `warnings` from the CV.
+- [x] Dashboard: list with status badge, open-question count, date; "New CV" button; delete with a confirm dialog.
+- [x] New CV form: role input + Tabs ("Upload PDF" with a hidden `<input type="file" accept="application/pdf">` opened by a Button + a drag-and-drop zone on desktop / "Paste text") (NFR-M4). Sends an `Idempotency-Key` (UUID generated once per form instance). Maps `400 fields` via `setError`.
+- [x] Progress screen `/cvs/:id`: `EventSource` + stage list with `aria-live`; on `visibilitychange` (visible) or `error` → reconnect or `GET /api/jobs/:id` (AC-5.4, NFR-M5). Shows "Still working…" on retries and the failure reason + "Retry" (button wired in Phase 5). Shows `warnings` from the CV.
 
 ## Tests
 - **Integration (real Postgres + Redis):**

@@ -10,6 +10,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/.test-build/**',
       '**/.next/**',
       '**/coverage/**',
       '**/generated/**',
@@ -62,6 +63,15 @@ export default tseslint.config(
             'apps/web may only read NEXT_PUBLIC_* variables (and API_INTERNAL_URL in next.config).',
         },
       ],
+    },
+  },
+  {
+    // Keep components small: split out subcomponents, hooks, and pure logic (see CLAUDE.md).
+    // shadcn's generated primitives in components/ui are exempt.
+    files: ['apps/web/app/**/*.tsx', 'apps/web/components/**/*.tsx'],
+    ignores: ['apps/web/components/ui/**'],
+    rules: {
+      'max-lines': ['warn', { max: 150, skipBlankLines: true, skipComments: true }],
     },
   },
   prettier,

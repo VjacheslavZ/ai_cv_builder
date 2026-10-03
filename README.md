@@ -47,6 +47,34 @@ authenticated calls answer `503` instead of guessing.
 `WEB_ORIGIN` (default `http://localhost:3000`) must be the URL users open: it is the only
 origin allowed to send mutating requests.
 
+## Creating a CV: jobs and limits
+
+**Input** (`/cvs/new`): a target role (1–100 characters) plus a PDF (≤ 10 MB, ≤ 10 pages, with a
+text layer), pasted text (≤ 20,000 characters), or both. A scanned PDF without text fails with a
+clear message, or, when text was pasted too, is skipped with a warning that stays on the CV.
+Generation is limited to 2 running jobs per user and 20 per hour.
+
+**Jobs.** Creating a CV writes the CV, its source text, the temporary PDF, and a `queued` job
+to Postgres in one transaction, then enqueues the job in BullMQ (queue `cv-jobs`) and answers
+`202` at once. The worker runs the stages `queued → extracting → generating → validating →
+completed` (or `failed`), and the progress page follows them live over SSE; reloading or
+opening the CV on another device shows the same job. Postgres holds the state you see; a
+sweeper in the worker re-enqueues jobs lost between Postgres and Redis, retries jobs whose
+worker crashed (BullMQ stalled detection), and fails anything still running 10 minutes after
+it was created (`JOB_TIMEOUT`). On `SIGTERM` (`docker compose stop`) the worker finishes its
+current job, up to 30 s.
+
+Until Phase 3 the worker uses an offline **fake LLM** (`LLM_PROVIDER=fake`): the "draft" is your
+source lines, so the whole flow works without spending API credits.
+
+**PDF retention.** The original PDF is not kept: its bytes sit in a temporary Postgres table
+until the worker extracts the text (then they are deleted in the same transaction), and are
+also deleted after a failed extraction or by the sweeper 24 h after upload at the latest.
+
+**Manual edits** are tracked as one `editedPaths` set of field paths on the CV document (for
+example `summary` or `experience.<id>.bullets.<id>`), not as a `userEdited` flag on every
+field: plain string fields stay plain, and the set moves with the document in every write.
+
 ## Monorepo layout
 
 ```

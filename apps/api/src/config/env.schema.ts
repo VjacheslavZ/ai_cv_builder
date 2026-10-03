@@ -1,6 +1,8 @@
+import { PDF_MAX_BYTES, PDF_MAX_PAGES } from '@cv/shared';
 import { z } from 'zod';
 
 const ms = (defaultMs: number) => z.coerce.number().int().positive().default(defaultMs);
+const msOrZero = (defaultMs: number) => z.coerce.number().int().nonnegative().default(defaultMs);
 const count = (defaultValue: number) => z.coerce.number().int().positive().default(defaultValue);
 const seconds = count;
 
@@ -22,6 +24,10 @@ export const envSchema = z.object({
   // Required by the worker from Phase 3 on; optional until then so the stack starts without it.
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   ANTHROPIC_MODEL: z.string().min(1).default('claude-sonnet-5-5'),
+  // Phase 2 runs the whole pipeline on the scripted fake; Phase 3 adds `anthropic`.
+  LLM_PROVIDER: z.enum(['fake']).default('fake'),
+  // How long the fake "thinks", so the stages are visible in the browser.
+  FAKE_LLM_DELAY_MS: msOrZero(1_500),
   // Required in production; an empty value (as in .env.example) counts as unset.
   BETTER_AUTH_SECRET: z.preprocess(
     (v) => (v === '' ? undefined : v),
@@ -48,6 +54,20 @@ export const envSchema = z.object({
   JOB_DEADLINE_MS: ms(600_000),
   SWEEPER_INTERVAL_MS: ms(30_000),
   WORKER_SHUTDOWN_TIMEOUT_MS: ms(30_000),
+  // Keep near BullMQ's default: locks are renewed every lockDuration / 2 while the event loop
+  // is free, so long steps need no long lock, and a crashed worker is noticed quickly (AC-5.7).
+  WORKER_LOCK_DURATION_MS: ms(30_000),
+  WORKER_STALLED_INTERVAL_MS: ms(30_000),
+  WORKER_MAX_STALLED_COUNT: count(1),
+  JOB_ATTEMPTS: count(3),
+  JOB_BACKOFF_MS: ms(5_000),
+  // The API answers 202 even when Redis is down; the sweeper enqueues later (AC-3.1, AC-5.7a).
+  ENQUEUE_TIMEOUT_MS: ms(500),
+  SWEEPER_REQUEUE_AFTER_MS: ms(30_000),
+  PDF_RETENTION_MS: ms(24 * 60 * 60 * 1000),
+  SSE_HEARTBEAT_MS: ms(15_000),
+  // How long EventSource waits before reconnecting after a drop (the SSE `retry` field).
+  SSE_RETRY_MS: ms(2_000),
   READY_CHECK_TIMEOUT_MS: ms(2_000),
   // Commands on the `general` Redis connection (sessions, counters) fail after this instead
   // of hanging, so a Redis outage turns into 503 (NFR-R12).
@@ -57,6 +77,19 @@ export const envSchema = z.object({
   MAX_ACTIVE_GENERATIONS_PER_USER: count(2),
   GENERATIONS_PER_HOUR: count(20),
   ANSWERS_PER_HOUR: count(60),
+  LLM_INVALID_OUTPUT_RETRIES: z.coerce.number().int().nonnegative().default(2),
+
+  PDF_MAX_BYTES: count(PDF_MAX_BYTES),
+  PDF_MAX_PAGES: count(PDF_MAX_PAGES),
+  // Fewer letters and digits than this means "a scan without a text layer" (AC-4.3).
+  PDF_MIN_TEXT_CHARS: count(200),
+  PDF_WORKER_MAX_MEMORY_MB: count(256),
+
+  // Per worker in tests, so parallel test files never share a queue.
+  BULLMQ_PREFIX: z
+    .string()
+    .regex(/^[\w-]+$/)
+    .default('bull'),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -86,6 +119,11 @@ export function loadConfig(source: NodeJS.ProcessEnv) {
     databaseUrl: env.DATABASE_URL,
     redisUrl: env.REDIS_URL,
     anthropic: { apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL },
+    llm: {
+      provider: env.LLM_PROVIDER,
+      fakeDelayMs: env.FAKE_LLM_DELAY_MS,
+      invalidOutputRetries: env.LLM_INVALID_OUTPUT_RETRIES,
+    },
     auth: {
       secret: betterAuthSecret,
       webOrigin,
@@ -107,6 +145,14 @@ export function loadConfig(source: NodeJS.ProcessEnv) {
       jobDeadlineMs: env.JOB_DEADLINE_MS,
       sweeperIntervalMs: env.SWEEPER_INTERVAL_MS,
       workerShutdownMs: env.WORKER_SHUTDOWN_TIMEOUT_MS,
+      workerLockMs: env.WORKER_LOCK_DURATION_MS,
+      workerStalledIntervalMs: env.WORKER_STALLED_INTERVAL_MS,
+      jobBackoffMs: env.JOB_BACKOFF_MS,
+      enqueueMs: env.ENQUEUE_TIMEOUT_MS,
+      sweeperRequeueAfterMs: env.SWEEPER_REQUEUE_AFTER_MS,
+      pdfRetentionMs: env.PDF_RETENTION_MS,
+      sseHeartbeatMs: env.SSE_HEARTBEAT_MS,
+      sseRetryMs: env.SSE_RETRY_MS,
       readyCheckMs: env.READY_CHECK_TIMEOUT_MS,
       redisCommandMs: env.REDIS_COMMAND_TIMEOUT_MS,
     },
@@ -115,7 +161,16 @@ export function loadConfig(source: NodeJS.ProcessEnv) {
       maxActiveGenerationsPerUser: env.MAX_ACTIVE_GENERATIONS_PER_USER,
       generationsPerHour: env.GENERATIONS_PER_HOUR,
       answersPerHour: env.ANSWERS_PER_HOUR,
+      workerMaxStalledCount: env.WORKER_MAX_STALLED_COUNT,
+      jobAttempts: env.JOB_ATTEMPTS,
     },
+    pdf: {
+      maxBytes: env.PDF_MAX_BYTES,
+      maxPages: env.PDF_MAX_PAGES,
+      minTextChars: env.PDF_MIN_TEXT_CHARS,
+      workerMaxMemoryMb: env.PDF_WORKER_MAX_MEMORY_MB,
+    },
+    queue: { prefix: env.BULLMQ_PREFIX },
   };
 }
 

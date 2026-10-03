@@ -9,7 +9,7 @@ Rules and pointers for working in this repo. The SPEC is the source of truth; th
 - Production images: `docker compose -f docker-compose.yml up --build` (`pnpm prod`); `docker-compose.override.yml` must not leak into it, so production-only settings stay in `docker-compose.yml`.
 - `pnpm dev:host` runs the apps on the host instead (needs `pnpm infra:up` and the compose app containers stopped).
 - `pnpm typecheck`, `pnpm lint`, `pnpm format`.
-- `pnpm test:unit` (no Docker), `pnpm test:int` (Testcontainers, needs Docker), `pnpm test` (both).
+- `pnpm test:unit` (no Docker), `pnpm test:int` (Testcontainers, needs Docker), `pnpm test` (both). One file: `pnpm vitest run --project api-int apps/api/test/<name>.int.test.ts`. Integration tests run the HTTP app (`createTestApp`) and the worker (`startTestWorker`, scripted `FakeLlmClient`) in-process with their own database and `BULLMQ_PREFIX` (`uniqueQueuePrefix()`); call `Sweeper.tick()` directly instead of waiting for the interval. The crash test compiles the api into `apps/api/.test-build` and runs the worker as a child process.
 - better-auth models: regenerate with `pnpm dlx auth@<better-auth version> generate --config <file> --output prisma/schema.prisma` against a minimal config with the same `database`/`secondaryStorage`/plugins, then re-apply the plural `@@map` and `Timestamptz` edits and add a migration.
 - Prisma (from `apps/api`): `pnpm db:migrate` (create + apply, dev), `pnpm db:deploy`, `pnpm db:generate`. Config: `apps/api/prisma.config.ts`.
 - Full stack: `docker compose up` (needs `ANTHROPIC_API_KEY` in `.env`). `/ready` is not proxied by web; check `docker compose ps`.
@@ -37,11 +37,17 @@ Rules and pointers for working in this repo. The SPEC is the source of truth; th
 - **Redis failure → `503`:** a failed session lookup fails closed as `503 SERVICE_UNAVAILABLE`, never as anonymous or authenticated (mapped in `AllExceptionsFilter`). Keep better-auth's `cookieCache` off so every request checks Redis.
 - Mutating non-auth requests need `Origin` = `WEB_ORIGIN` and a JSON or multipart body (`common/http/origin-check.ts`); tests send `Origin: TEST_ORIGIN`.
 - SSE through the Next rewrite dies after 30 s of silence: send a heartbeat well under that.
+- **Jobs** (`cv-jobs`): the BullMQ payload is ids only (`{ jobId }`) and the BullMQ `jobId` is the DB job id. Enqueue only **after** the DB commit (`CvQueueService.addAfterCommit`, never throws; the sweeper repairs lost enqueues). Jobs are at-least-once: every stage goes through `JobState`, which checks that the DB job is still active (a deleted CV cascades its jobs away) before writing, and results are written whole under `SELECT … FOR UPDATE` on the CV (lock the CV row first, then touch the job). Publish events only after commit.
+- Never block the worker's event loop: BullMQ renews locks only while it is free (CPU work such as PDF parsing runs in a `worker_thread`). Keep `lockDuration` near the default.
+- Permanent job failures throw `PermanentJobError(code)` (marked failed, then `UnrecoverableError`); anything else is retried by BullMQ and fails the DB job on the last attempt.
+- Manual edits are tracked in `CvDocument.editedPaths` (field paths), not per-field flags.
 - The Next rewrite does not forward the client IP; `apps/web/server/forwarded-for.cjs` (preloaded in the web image) sets `X-Forwarded-For` from the socket and overwrites client-supplied values. Behind a trusted load balancer it must append instead.
 
 ## Conventions
 
 Field paths, error codes, job states, question statuses, IDs, and dates: [`docs/plans/README.md`](docs/plans/README.md#cross-cutting-conventions). Field-path helpers: `packages/shared/src/field-path`.
+
+React components (`apps/web/app`, `apps/web/components`) stay around 150 lines (ESLint `max-lines` warns above 150, not counting blank lines and comments; shadcn's `components/ui` is exempt). Split a larger one into subcomponents in their own files, hooks, and pure logic in `lib/` with a unit test, e.g. `new-cv-form` → `pdf-picker`, `source-text-field`, `lib/create-cv-errors.ts`. Keep a `useWatch` subscription in the smallest component that needs it.
 
 ## Where to look
 

@@ -24,21 +24,26 @@ const DEFAULT_STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
 export class ApiException extends Error {
   readonly status: HttpStatus;
   readonly fields?: Record<string, string>;
+  readonly jobId?: string;
 
   constructor(
     readonly code: ErrorCode,
     message: string,
-    options: { status?: HttpStatus; fields?: Record<string, string> } = {},
+    options: { status?: HttpStatus; fields?: Record<string, string>; jobId?: string } = {},
   ) {
     super(message);
     this.name = 'ApiException';
     this.status = options.status ?? DEFAULT_STATUS[code] ?? HttpStatus.BAD_REQUEST;
     this.fields = options.fields;
+    this.jobId = options.jobId;
   }
 
   toBody(): ApiError {
-    return this.fields
-      ? { code: this.code, message: this.message, fields: this.fields }
-      : { code: this.code, message: this.message };
+    return {
+      code: this.code,
+      message: this.message,
+      ...(this.fields ? { fields: this.fields } : {}),
+      ...(this.jobId ? { jobId: this.jobId } : {}),
+    };
   }
 }
