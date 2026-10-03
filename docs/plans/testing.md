@@ -52,7 +52,7 @@ Deterministic tests prove that nothing fabricated is saved; they cannot judge wo
 
 - **Inputs:** Russian and English; PDF and free text; junior and senior; one with missing contacts and dates; one with vague descriptions; one with the injection text; target roles both matching and not matching the source.
 - **Checks:** facts removed by grounding (expected 0 for honest inputs; non-zero means the prompt or the rules need work); bullets ≤ 25 words and starting with an action verb (AC-6.2); summary 2–4 sentences without role tokens absent from the source (AC-6.3, AC-7.7); experience order vs a hand-labelled expected order (AC-6.4); number and types of questions (AC-8.2); tokens and duration per case.
-- Run it after every prompt change; record notable results in the README **Decisions** section.
+- Run it after every prompt change.
 
 ## CI (GitHub Actions)
 

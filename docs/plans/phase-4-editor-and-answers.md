@@ -65,4 +65,4 @@
 - Open a draft on a phone, edit a bullet, answer a "vague" question about the same entry → section updates and is highlighted, the edited bullet is untouched; skipping and the email shortcut both work.
 - Typing in Summary while an answer updates Experience shows no conflict message.
 - A second tab with a stale version gets the conflict UI without losing typed text.
-- **Docs updated.** CLAUDE.md: the AI never changes `userEdited` fields, enforced on the server by id-based merge at commit; every CV write goes through the row lock and bumps `version`; only AI writes bump `aiRevision` (fencing); `apply_answer` takes the per-CV Redis lock; autosave logic lives in a plain module with unit tests. README Decisions: the fencing scheme, the merge rule, and how the client avoids false conflicts.
+- **Docs updated.** CLAUDE.md: the AI never changes `userEdited` fields, enforced on the server by id-based merge at commit; every CV write goes through the row lock and bumps `version`; only AI writes bump `aiRevision` (fencing); `apply_answer` takes the per-CV Redis lock; autosave logic lives in a plain module with unit tests.

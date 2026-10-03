@@ -29,6 +29,7 @@ Rules and pointers for working in this repo. The SPEC is the source of truth; th
 - No PII or CV text in logs: no CV content, answers, emails, cookies, or keys. Log ids, stages, durations, counts.
 - `/api/auth/*` bodies are never parsed by our middleware (better-auth reads the raw stream).
 - SSE through the Next rewrite dies after 30 s of silence: send a heartbeat well under that.
+- The Next rewrite does not forward the client IP; `apps/web/server/forwarded-for.cjs` (preloaded in the web image) sets `X-Forwarded-For` from the socket and overwrites client-supplied values. Behind a trusted load balancer it must append instead.
 
 ## Conventions
 
@@ -38,5 +39,4 @@ Field paths, error codes, job states, question statuses, IDs, and dates: [`docs/
 
 - [`docs/SPEC.md`](docs/SPEC.md): requirements and acceptance criteria.
 - [`docs/plans/`](docs/plans/README.md): phase plans; [`testing.md`](docs/plans/testing.md): test strategy and harness.
-- `README.md` → **Decisions**: why things are the way they are. Append to it when you make a non-obvious choice.
 - Project skills (`.claude/skills/`): Prisma → `prisma-upgrade-v7`, `prisma-client-api`, `prisma-cli`; Postgres → `supabase-postgres-best-practices`; auth → `better-auth-*`, `email-and-password-best-practices`; Nest → `nestjs-best-practices`; React/Next → `vercel-react-best-practices`; UI → `shadcn`; tests → `vitest`, `webapp-testing`; other library docs → `context7-mcp`.

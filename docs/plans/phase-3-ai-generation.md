@@ -57,4 +57,4 @@ This is the product's primary safeguard (SPEC §5.4 item 1). Write the grounding
 ## Definition of done
 - A real Russian-language PDF produces an English draft with role-targeted ordering; nothing in the draft lacks support in the source; questions appear next to the draft.
 - The grounding and fixture suites are green without `ANTHROPIC_API_KEY`.
-- **Docs updated.** CLAUDE.md: every LLM response goes through the Zod schema **and** the grounding check before it can touch a CV; source text is always passed as delimited data; never log prompts or responses; tests use `FakeLlmClient`; every LLM call checks the job deadline; how to run the real-key evaluation. README Decisions: the "same context" rule for atoms, the name rule for free text, the transliteration rule, the role-not-fact handling.
+- **Docs updated.** CLAUDE.md: every LLM response goes through the Zod schema **and** the grounding check before it can touch a CV; source text is always passed as delimited data; never log prompts or responses; tests use `FakeLlmClient`; every LLM call checks the job deadline; how to run the real-key evaluation.

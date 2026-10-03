@@ -36,7 +36,7 @@ Phases 4 and 5 are independent of each other once phase 3 is done.
 3. **The LLM is behind an interface from day one.** Phase 2 runs the whole pipeline on a `FakeLlmClient`; Phase 3 adds the Anthropic implementation. No test needs a real `ANTHROPIC_API_KEY`.
 4. **Postgres is the source of truth** (SPEC §6.1). Anything put in Redis must be either ephemeral or rebuildable from Postgres.
 5. **Shared contracts first.** Zod schemas, CV document types, and error codes live in `packages/shared` and are written before the endpoint or form that uses them.
-6. **Docs move with the code.** Root `README.md` and `CLAUDE.md` are created in Phase 0. Every phase's Definition of Done includes updating them: new commands and invariants go to `CLAUDE.md`, user-facing setup and implementation decisions go to the README **Decisions** section. Phase 6 finalizes the README.
+6. **Docs move with the code.** Root `README.md` and `CLAUDE.md` are created in Phase 0. Every phase's Definition of Done includes updating them: new commands and invariants go to `CLAUDE.md`, user-facing setup goes to the README. Phase 6 finalizes the README.
 7. **Jobs are at-least-once.** Any job may run twice (BullMQ stalled recovery, sweeper re-enqueue). Results are written whole, and the worker re-checks the DB state before every write.
 
 ## Cross-cutting conventions

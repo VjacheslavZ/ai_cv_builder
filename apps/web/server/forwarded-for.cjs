@@ -4,7 +4,7 @@
 // would see the web container as the client and per-IP rate limits (AC-1.6) would lump all
 // users together. This sets X-Forwarded-For to the address of the peer that connected to Next,
 // overwriting any client-supplied value so it cannot be spoofed. If a trusted load balancer is
-// ever put in front of `web`, this must append instead (see README → Decisions).
+// ever put in front of `web`, this must append instead.
 'use strict';
 
 const http = require('node:http');

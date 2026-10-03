@@ -29,7 +29,6 @@
 - [ ] Architecture diagram (web → api → Postgres/Redis ← worker), the Postgres/Redis split (SPEC §6.1), job lifecycle.
 - [ ] How grounding works and its known limits.
 - [ ] Running the tests; the real-key evaluation run.
-- [ ] Review the **Decisions** section accumulated in Phases 0–5 (rewrite spike results, `editedPaths` vs `userEdited`, grounding rules, fencing scheme and false-conflict handling, renderer choice) for completeness.
 
 ### CLAUDE.md
 - [ ] Check every command still works and every invariant still matches the code; remove anything stale.

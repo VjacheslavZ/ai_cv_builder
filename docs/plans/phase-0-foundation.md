@@ -45,7 +45,7 @@
 - [x] `ANTHROPIC_API_KEY` is the only value that must be in `.env`. `BETTER_AUTH_SECRET` gets a dev default in compose, overridable from `.env`.
 
 ### Project docs (root)
-- [x] `README.md` skeleton: what the app does, quick start (`cp .env.example .env` → set `ANTHROPIC_API_KEY` → `docker compose up` → URL), monorepo layout, root scripts, and an empty **Decisions** section that later phases append to.
+- [x] `README.md` skeleton: what the app does, quick start (`cp .env.example .env` → set `ANTHROPIC_API_KEY` → `docker compose up` → URL), monorepo layout, root scripts.
 - [x] `CLAUDE.md` with what the code cannot tell an agent:
   - **Commands:** `pnpm dev`, `pnpm test`, `pnpm typecheck`, `pnpm lint`, Prisma migrate/generate, how to start the stack.
   - **Layout rules:** `apps/web` is UI only (no business logic in Route Handlers or Server Actions); all logic lives in `apps/api`; contracts (Zod schemas, types, error codes) live in `packages/shared` and are written first.
@@ -62,7 +62,7 @@
 - [x] **SSE:** open it through Next (`next start` in compose, not just `next dev`) and confirm ticks arrive one by one. Set `Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no`; disable compression for that route if needed.
 - [x] **Client IP:** confirm `X-Forwarded-For` reaches the API with the browser's address; better-auth's rate limit depends on it (AC-1.6). If the rewrite does not set it, add it explicitly.
 - [x] **Origin and cookies:** confirm `Origin` survives the rewrite (NFR-S3) and a `Set-Cookie` from the API lands on the web origin.
-- [x] Record the results in the README **Decisions** section. If the rewrite buffers SSE, Phase 2 relies on the `GET /api/jobs/:id` fallback (AC-5.4) or calls the API directly with CORS and credentials. Delete the spike endpoints afterwards.
+- [x] Turn the results into rules in `CLAUDE.md`. If the rewrite buffers SSE, Phase 2 relies on the `GET /api/jobs/:id` fallback (AC-5.4) or calls the API directly with CORS and credentials. Delete the spike endpoints afterwards.
 
 ## Tests
 - `/ready` returns 503 when Redis is stopped and 200 when both are up.

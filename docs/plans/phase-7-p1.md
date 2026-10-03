@@ -42,4 +42,4 @@ Ordered by value to the user:
 
 ## Definition of done
 - Each item has its test.
-- **Docs updated.** README: the new features (undo, regenerate, rename, list editing, local buffer) and how to run the Playwright suite; README Decisions: how regenerate keeps facts and the previous document; CLAUDE.md: any new commands or invariants (e.g. undo and regenerate preserve user-typed facts).
+- **Docs updated.** README: the new features (undo, regenerate, rename, list editing, local buffer) and how to run the Playwright suite; CLAUDE.md: any new commands or invariants (e.g. undo and regenerate preserve user-typed facts).
