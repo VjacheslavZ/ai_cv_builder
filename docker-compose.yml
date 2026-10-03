@@ -1,0 +1,186 @@
+# One-command start: `docker compose up`. The only required value is ANTHROPIC_API_KEY in .env.
+name: ai-cv-builder
+
+x-api-env: &api-env
+  NODE_ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: postgresql://cv:cv@db:5432/cv
+  REDIS_URL: redis://redis:6379
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in .env (see .env.example)}
+  ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5-5}
+  # Local-only default; set BETTER_AUTH_SECRET in .env for anything beyond your machine.
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-only-secret-do-not-use-in-production}
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: cv
+      POSTGRES_PASSWORD: cv
+      POSTGRES_DB: cv
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U cv -d cv']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--appendfsync',
+        'everysec',
+        '--maxmemory-policy',
+        'noeviction',
+      ]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://cv:cv@db:5432/cv
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    command: ['node', 'dist/main.js']
+    environment:
+      <<: *api-env
+      PORT: '3001'
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    command: ['node', 'dist/worker.js']
+    environment: *api-env
+    # Let the current job finish on `docker compose stop` (NFR-R10).
+    stop_grace_period: 40s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'test', '-f', '/tmp/cv-worker.ready']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        API_INTERNAL_URL: http://api:3001
+    ports:
+      - '3000:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  # Redis GUI for local development, published on localhost only. Its own logs go to /data/logs;
+  # the wrapper prints one line with the URL once the UI is up, next to the Next.js URL.
+  redisinsight:
+    image: redis/redisinsight:latest
+    environment:
+      RI_REDIS_HOST: redis
+      RI_REDIS_PORT: '6379'
+      RI_REDIS_ALIAS: ai-cv-builder
+      RI_STDOUT_LOGGER: 'false'
+      PUBLIC_PORT: ${REDISINSIGHT_PORT:-5540}
+    ports:
+      - '127.0.0.1:${REDISINSIGHT_PORT:-5540}:5540'
+    volumes:
+      - redisinsight-data:/data
+    entrypoint:
+      - sh
+      - -c
+      - |
+        node redisinsight/api/dist/src/main &
+        pid=$$!
+        trap 'kill -TERM $$pid 2>/dev/null; wait $$pid; exit 0' TERM INT
+        until node -e "fetch('http://127.0.0.1:5540/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; do
+          kill -0 $$pid 2>/dev/null || exit 1
+          sleep 1
+        done
+        echo "- Redis GUI:     http://localhost:$$PUBLIC_PORT (RedisInsight, connection: ai-cv-builder)"
+        wait $$pid
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:5540/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  redis-data:
+  redisinsight-data:

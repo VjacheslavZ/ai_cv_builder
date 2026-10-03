@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  '@prisma/engines': true
+  prisma: true
+  # Optional native accelerators pulled in by testcontainers (ssh2); not needed.
+  cpu-features: false
+  protobufjs: false
+  ssh2: false

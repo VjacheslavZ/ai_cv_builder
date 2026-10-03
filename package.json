@@ -1,0 +1,37 @@
+{
+  "name": "ai-cv-builder",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.16.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "postinstall": "pnpm run codegen",
+    "codegen": "pnpm --filter @cv/shared build && pnpm --filter @cv/api db:generate",
+    "dev": "pnpm --parallel --filter \"./apps/*\" --filter @cv/shared dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:unit": "vitest run --project shared --project api-unit --project web",
+    "test:int": "vitest run --project api-int",
+    "infra:up": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db redis redisinsight",
+    "infra:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@next/eslint-plugin-next": "^16.3.8",
+    "@types/node": "^24",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^5.0.3"
+  }
+}
