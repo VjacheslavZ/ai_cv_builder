@@ -1,0 +1,10 @@
+# For running api/worker/web on the host (`pnpm infra:up`, then `pnpm dev`):
+# publishes Postgres and Redis on localhost only. Never use this override beyond your machine.
+# Change the host ports in .env if they are taken (and update DATABASE_URL / REDIS_URL).
+services:
+  db:
+    ports:
+      - '127.0.0.1:${DEV_POSTGRES_PORT:-5432}:5432'
+  redis:
+    ports:
+      - '127.0.0.1:${DEV_REDIS_PORT:-6379}:6379'

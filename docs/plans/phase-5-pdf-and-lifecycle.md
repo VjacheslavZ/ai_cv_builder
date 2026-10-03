@@ -33,4 +33,4 @@ Regenerate (FR-13) is P1 in SPEC v1.1 and moved to [Phase 7](phase-7-p1.md).
 ## Definition of done
 - Download works on desktop and on a phone (or the mobile emulator) for a CV with open questions and a Cyrillic name.
 - Retry leads from `failed` back to a `ready` draft.
-- **Docs updated.** CLAUDE.md: where the PDF template and fonts live; the PDF is rendered only from the saved document. README Decisions: the renderer choice.
+- **Docs updated.** CLAUDE.md: where the PDF template and fonts live; the PDF is rendered only from the saved document.

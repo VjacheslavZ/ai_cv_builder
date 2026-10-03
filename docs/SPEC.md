@@ -40,8 +40,8 @@ Status: v1.1.
 | 13 | Stack | Next.js (UI only) + NestJS on **Express** (REST API) + a separate worker process. TypeScript. |
 | 14 | PDF rendering | Server-side, from JSON (`@react-pdf/renderer` or `pdfkit`). A4, selectable text. |
 | 15 | Mobile | The whole flow works from 360px wide. No PDF preview on phones. |
-| 16 | UI kit | Tailwind CSS + shadcn/ui initialized on the **React Aria** base (`shadcn init --base aria`). No Radix: one primitives layer. |
-| 17 | Form validation | react-hook-form + Zod (`zodResolver`) with shadcn `Field` components. Zod schemas are shared between web and api. React Aria's built-in validation is not used (`validationBehavior="aria"`; errors are passed via `isInvalid` / `errorMessage`). |
+| 16 | UI kit | Tailwind CSS + shadcn/ui initialized on the **Base UI** base (`shadcn init --base base`). No Radix: one primitives layer. |
+| 17 | Form validation | react-hook-form + Zod (`zodResolver`) with shadcn `Field` components. Zod schemas are shared between web and api. Base UI's built-in field validation is not used: react-hook-form is the only validation state, and errors are passed via `aria-invalid` and `FieldError`. |
 | 18 | Job queue | **BullMQ on Redis** for dispatch, retries, backoff, and stalled-job detection. Postgres keeps the job status the user sees. |
 
 **Assumptions**
@@ -522,11 +522,11 @@ Decided during clarification:
 | NFR-M1 | The whole flow (sign up → input → progress → questions → editing → PDF download) works at **360 px** wide and up, with no horizontal scrolling. Verified by a Playwright test at a 360×740 viewport (and iPhone SE 375×667). |
 | NFR-M2 | Mobile-first single-column layout. At ≥ 1024 px the editor and questions panel sit side by side. On phones, questions are reachable via a tab or slide-out panel with an open-question counter. |
 | NFR-M3 | Touch targets ≥ 44×44 px. Input font size ≥ 16 px so iOS does not zoom on focus. Correct `type`/`inputmode`/`autocomplete` (email, tel, url, current-password, new-password). |
-| NFR-M4 | File upload works via the native iOS and Android pickers (React Aria `FileTrigger` with `acceptedFileTypes={["application/pdf"]}`, plus `DropZone` on desktop), with an alternative "Paste text" tab. |
+| NFR-M4 | File upload works via the native iOS and Android pickers (a hidden `<input type="file" accept="application/pdf">` opened by a Button, plus a drag-and-drop zone on desktop), with an alternative "Paste text" tab. |
 | NFR-M5 | Background resilience: on `visibilitychange` autosave fires immediately, and when the tab returns the client reconnects SSE or fetches the status (iOS drops background connections). |
 | NFR-M6 | The virtual keyboard does not cover the active field or the answer submit button. Uses `dvh` and sticky elements respecting safe-area. |
 | NFR-M7 | Performance on a mid-range phone: dashboard and editor interactive in < 3 s on "Fast 4G", initial JS ≤ 250 KB gzip (PDF is rendered on the server, no client-side PDF libraries). |
-| NFR-M8 | Accessibility: semantic headings and labels, visible focus, "Saving / Updating / generation stage" statuses announced via `aria-live`, contrast ≥ WCAG AA. Interactive components come from React Aria (keyboard, screen-reader, and consistent touch/press handling out of the box); form errors are linked to fields via `aria-invalid` / `aria-describedby`. |
+| NFR-M8 | Accessibility: semantic headings and labels, visible focus, "Saving / Updating / generation stage" statuses announced via `aria-live`, contrast ≥ WCAG AA. Interactive components come from Base UI (keyboard, focus management, and screen-reader support out of the box); form errors are linked to fields via `aria-invalid` / `aria-describedby`. |
 
 ### 5.4 Testability (minimum required set)
 
@@ -545,8 +545,8 @@ All tests run without a real `ANTHROPIC_API_KEY`: the LLM client sits behind an 
 
 - **Repository:** a workspace monorepo — `apps/web` (Next.js), `apps/api` (NestJS; two entrypoints: HTTP API and worker), `packages/shared` (Zod schemas, DTO and CV types, error codes) used by both sides.
 - **Frontend:** Next.js (App Router, TypeScript) is UI only. No business logic in Route Handlers or Server Actions. Next proxies `/api/*` to NestJS (rewrite), so everything runs on a single origin. SSE proxying through the rewrite must be verified early; if it buffers, the client still copes via the `GET` fallback (AC-5.4).
-  - **Styling and components:** Tailwind CSS + shadcn/ui initialized with `--base aria` (components are React Aria Components; no Radix in the bundle).
-  - **Forms:** react-hook-form + `@hookform/resolvers/zod` + shadcn `Field` / `FieldError`. React Aria inputs are wired through RHF `Controller` with `validationBehavior="aria"` (no native browser popups). Server field errors (`400 { code, fields }`) are applied with `form.setError`. The CV editor uses `useFieldArray` for bullets / entries and a debounced autosave subscribed to form changes.
+  - **Styling and components:** Tailwind CSS + shadcn/ui initialized with `--base base` (components are built on Base UI, `@base-ui/react`; no Radix in the bundle).
+  - **Forms:** react-hook-form + `@hookform/resolvers/zod` + shadcn `Field` / `FieldError`. Base UI inputs are wired through RHF (`register` or `Controller`), the form has `noValidate` (no native browser popups), and invalid fields get `aria-invalid`. Server field errors (`400 { code, fields }`) are applied with `form.setError`. The CV editor uses `useFieldArray` for bullets / entries and a debounced autosave subscribed to form changes.
 - **Backend:** NestJS on `@nestjs/platform-express` (Express), REST, Zod validation via a global pipe, `helmet`, multer for uploads. Created with `bodyParser: false` as required by better-auth; JSON parsing (limit 1 MB) is enabled for all routes except `/api/auth/*`.
 - **Auth:** better-auth (email + password) with the Prisma adapter for users/accounts and `@better-auth/redis-storage` (ioredis) as `secondaryStorage` for sessions and rate-limit counters. NestJS integration via `@thallesp/nestjs-better-auth` (documented for Express): its global `AuthGuard` makes every route protected by default; public routes are marked `@AllowAnonymous()`.
 - **Worker:** the same NestJS codebase, started as a standalone application context with a separate command in compose, running a BullMQ `Worker` (concurrency 2–4). Queue `cv-jobs` with job names `generate` and `apply_answer`.
@@ -607,7 +607,7 @@ GET    /health, /ready                  /ready checks Postgres and Redis
 | Next.js rewrite hides the client IP or the `Origin` header | Verified in the first spike together with SSE; the IP comes from `X-Forwarded-For` (AC-1.6), and the Origin check (NFR-S3) is tested through the proxy |
 | Redis is a single point of failure for sessions and the queue | AOF on a volume, `noeviction`, healthchecks; fail closed with `503` (NFR-R12); all business data and job status in Postgres, so the sweeper restores the queue |
 | State split between Postgres (job status) and BullMQ (execution) | Postgres is authoritative; BullMQ `jobId` = DB id; enqueue after commit + sweeper; the worker checks that the DB job is still active (and the CV still exists) before and after the LLM call |
-| shadcn's React Aria base is new (July 2026), fewer community examples than Radix | Use only the components the app needs (button, field, input, textarea, dialog, tabs, toast, file trigger); any gap is filled directly with React Aria Components styled with Tailwind |
+| shadcn's Base UI base has fewer community examples than Radix | Use only the components the app needs (button, field, input, textarea, dialog, tabs, toast); file upload is a native file input; any gap is filled directly with Base UI primitives styled with Tailwind |
 | Prisma 7 + raw SQL for row locks | Keep `$queryRaw` usage in one repository module, covered by the integration tests from §5.4 |
 | Grounding check too strict (filters out honest rephrasing) | Only quotes and "atoms" (numbers, dates, proper nouns, skills) are checked, not wording. Thresholds are configurable, and a grounding report is available for debugging |
 | Cost and quota of the reviewers' key | Limits from NFR-S9, source size cap, question cap |

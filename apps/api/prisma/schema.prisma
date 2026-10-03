@@ -1,0 +1,13 @@
+// Connection URL lives in prisma.config.ts (Prisma 7).
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Models arrive with Phase 1 (auth) and Phase 2 (CVs, jobs, questions).

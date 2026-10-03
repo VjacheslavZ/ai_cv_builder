@@ -52,7 +52,7 @@
 
 ### apps/web
 - [ ] Dashboard: list with status badge, open-question count, date; "New CV" button; delete with a confirm dialog.
-- [ ] New CV form: role input + Tabs ("Upload PDF" with React Aria `FileTrigger` + `DropZone` on desktop, `acceptedFileTypes={["application/pdf"]}` / "Paste text") (NFR-M4). Sends an `Idempotency-Key` (UUID generated once per form instance). Maps `400 fields` via `setError`.
+- [ ] New CV form: role input + Tabs ("Upload PDF" with a hidden `<input type="file" accept="application/pdf">` opened by a Button + a drag-and-drop zone on desktop / "Paste text") (NFR-M4). Sends an `Idempotency-Key` (UUID generated once per form instance). Maps `400 fields` via `setError`.
 - [ ] Progress screen `/cvs/:id`: `EventSource` + stage list with `aria-live`; on `visibilitychange` (visible) or `error` → reconnect or `GET /api/jobs/:id` (AC-5.4, NFR-M5). Shows "Still working…" on retries and the failure reason + "Retry" (button wired in Phase 5). Shows `warnings` from the CV.
 
 ## Tests
