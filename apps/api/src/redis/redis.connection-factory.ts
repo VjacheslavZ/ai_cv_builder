@@ -39,14 +39,22 @@ export class RedisConnectionFactory implements OnApplicationShutdown {
     return connection;
   }
 
+  /**
+   * QUIT politely, but never wait on Redis longer than REDIS_COMMAND_TIMEOUT_MS: a `bullmq` or
+   * `subscriber` connection has no command timeout, and on a socket that stays open while Redis
+   * is gone (e.g. a stopped container behind docker-proxy) QUIT would never resolve.
+   */
   async onApplicationShutdown(): Promise<void> {
+    const ms = this.config.timeouts.redisCommandMs;
     await Promise.all(
       [...this.connections].map(async (connection) => {
-        try {
-          await connection.quit();
-        } catch {
-          connection.disconnect();
-        }
+        let timer: NodeJS.Timeout | undefined;
+        const timedOut = new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, ms);
+        });
+        await Promise.race([connection.quit().catch(() => undefined), timedOut]);
+        clearTimeout(timer);
+        connection.disconnect();
       }),
     );
     this.connections.clear();

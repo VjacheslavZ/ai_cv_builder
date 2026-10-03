@@ -108,6 +108,7 @@ export class CvQueueService implements OnApplicationShutdown {
   }
 
   async onApplicationShutdown(): Promise<void> {
-    await this.queue.close().catch(() => undefined);
+    // Bounded like every Redis call on shutdown: the connection itself is dropped by the factory.
+    await this.bounded(this.queue.close()).catch(() => undefined);
   }
 }

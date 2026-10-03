@@ -69,6 +69,8 @@ export class CvWorker implements OnApplicationBootstrap, BeforeApplicationShutdo
    */
   private async onFailed(job: CvBullJob | undefined, err: Error): Promise<void> {
     if (!job || job.finishedOn === undefined) return; // will be retried
+    // Thrown by the processor after it already marked the DB job failed.
+    if (err.name === 'UnrecoverableError') return;
     try {
       await this.state.fail(job.data.jobId, ErrorCode.INTERNAL);
     } catch (failErr) {
