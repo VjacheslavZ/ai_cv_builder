@@ -34,6 +34,8 @@ WORKDIR /app
 COPY --from=deploy --chown=node:node /out/package.json ./package.json
 COPY --from=deploy --chown=node:node /out/node_modules ./node_modules
 COPY --from=deploy --chown=node:node /out/dist ./dist
+# PDF export fonts, resolved as `../../assets/fonts` from dist/pdf.
+COPY --from=deploy --chown=node:node /out/assets ./assets
 USER node
 EXPOSE 3001
 # `node dist/worker.js` for the worker (see docker-compose.yml).

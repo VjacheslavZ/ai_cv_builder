@@ -93,6 +93,8 @@ export const envSchema = z.object({
   // Fewer letters and digits than this means "a scan without a text layer" (AC-4.3).
   PDF_MIN_TEXT_CHARS: count(200),
   PDF_WORKER_MAX_MEMORY_MB: count(256),
+  // The PDF export's render worker_thread; a maximum-size CV renders within 64 MB.
+  PDF_RENDER_MAX_MEMORY_MB: count(256),
 
   // Per worker in tests, so parallel test files never share a queue.
   BULLMQ_PREFIX: z
@@ -186,6 +188,7 @@ export function loadConfig(source: NodeJS.ProcessEnv) {
       maxPages: env.PDF_MAX_PAGES,
       minTextChars: env.PDF_MIN_TEXT_CHARS,
       workerMaxMemoryMb: env.PDF_WORKER_MAX_MEMORY_MB,
+      renderMaxMemoryMb: env.PDF_RENDER_MAX_MEMORY_MB,
     },
     queue: { prefix: env.BULLMQ_PREFIX },
   };
