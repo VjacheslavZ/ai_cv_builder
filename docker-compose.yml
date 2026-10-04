@@ -8,6 +8,7 @@ x-api-env: &api-env
   REDIS_URL: redis://redis:6379
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in .env (see .env.example)}
   ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5-5}
+  ANTHROPIC_EFFORT: ${ANTHROPIC_EFFORT:-medium}
   # Local-only default; set BETTER_AUTH_SECRET in .env for anything beyond your machine.
   BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-only-secret-do-not-use-in-production}
   # The browser-facing origin: better-auth baseURL, trusted Origin, Secure cookies unless localhost.

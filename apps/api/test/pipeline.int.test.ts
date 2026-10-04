@@ -236,7 +236,7 @@ describe('generate pipeline (fake LLM)', () => {
         cvId: cv.id,
         userId: user.userId,
         type: 'generate',
-        deadlineAt: new Date(Date.now() + 60_000),
+        deadlineAt: new Date(Date.now() + 600_000),
       },
     });
     const processor = worker.get(GenerateProcessor);
@@ -273,7 +273,7 @@ describe('generate pipeline (fake LLM)', () => {
           type: 'generate',
           status,
           createdAt: new Date(Date.now() - ageMs),
-          deadlineAt: new Date(Date.now() + 60_000),
+          deadlineAt: new Date(Date.now() + 600_000),
         },
       });
     }
@@ -407,7 +407,13 @@ describe('job deadline (NFR-R3, NFR-R4)', () => {
 
   beforeAll(async () => {
     db = await createTestDatabase();
-    const env = { BULLMQ_PREFIX: uniqueQueuePrefix(), JOB_DEADLINE_MS: '1500', ...SHORT_TIMEOUTS };
+    // Each call may take 1 s; the job has 2.5 s in total.
+    const env = {
+      BULLMQ_PREFIX: uniqueQueuePrefix(),
+      JOB_DEADLINE_MS: '2500',
+      LLM_TIMEOUT_MS: '1000',
+      ...SHORT_TIMEOUTS,
+    };
     app = await createTestApp({ databaseUrl: db.url, env });
     worker = await startTestWorker({ databaseUrl: db.url, env, llm });
   });
@@ -418,13 +424,16 @@ describe('job deadline (NFR-R3, NFR-R4)', () => {
     await db?.drop();
   });
 
-  it('cuts off a slow LLM call at the deadline with JOB_TIMEOUT', async () => {
-    llm.slow(10_000);
+  it('fails with JOB_TIMEOUT once a call no longer fits, without calling again', async () => {
+    llm.slow(10_000).slow(10_000).slow(10_000);
     const { cookie } = await signUp(app);
     const { cvId, jobId } = await createCv(app, { cookie, text: SAMPLE_TEXT });
     const prisma = app.get(PrismaService);
-    const job = await waitForJob(prisma, jobId, ['completed', 'failed'], 5_000);
-    expect(job).toMatchObject({ status: 'failed', errorCode: 'JOB_TIMEOUT', attempts: 1 });
+    const job = await waitForJob(prisma, jobId, ['completed', 'failed'], 8_000);
+    expect(job).toMatchObject({ status: 'failed', errorCode: 'JOB_TIMEOUT' });
+    // Slow calls time out and are retried; the attempt that hit the deadline made no call.
+    expect(llm.calls.length).toBeGreaterThanOrEqual(1);
+    expect(llm.calls.length).toBeLessThan(job.attempts);
     expect(await prisma.cv.findUniqueOrThrow({ where: { id: cvId } })).toMatchObject({
       status: 'failed',
     });

@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { cvDocumentSchema, ErrorCode, type CvDocument } from '@cv/shared';
+import { ErrorCode, llmCvOutputSchema } from '@cv/shared';
 import { UnrecoverableError } from 'bullmq';
 import { InjectConfig } from '../config/config.module.js';
+import { groundCv, type GroundingResult } from '../grounding/ground-cv.js';
 import type { AppConfig } from '../config/env.schema.js';
 import {
   InjectLlmClient,
@@ -16,7 +17,8 @@ import { JobStopped, PermanentJobError } from './job-errors.js';
 import { JobState, type ActiveJob } from './job-state.js';
 
 /**
- * The `generate` pipeline: `extracting → generating → validating → completed`.
+ * The `generate` pipeline: `extracting → generating → validating → completed`. Every LLM
+ * answer passes the Zod schema and the grounding check before anything touches the CV.
  *
  * At-least-once: the same job may run twice (stalled recovery, sweeper re-enqueue). Every
  * stage starts with a guarded transition and the result is written whole under the CV row
@@ -49,8 +51,8 @@ export class GenerateProcessor {
       if (job.deadlineAt.getTime() <= Date.now())
         throw new PermanentJobError(ErrorCode.JOB_TIMEOUT);
       await this.extract(job);
-      const document = await this.generate(job);
-      await this.state.complete(job, document);
+      const result = await this.generate(job);
+      await this.state.complete(job, result);
       this.logger.log(
         { jobId, cvId: job.cvId, attempt, durationMs: Date.now() - startedAt },
         'Job completed',
@@ -100,7 +102,7 @@ export class GenerateProcessor {
   }
 
   /** `generating` + `validating`: an invalid answer is re-requested with the errors (AC-6.6). */
-  private async generate(job: ActiveJob): Promise<CvDocument> {
+  private async generate(job: ActiveJob): Promise<GroundingResult> {
     await this.state.enterStage(job, 'generating');
     const sources = await this.prisma.sourceText.findMany({
       where: { cvId: job.cvId },
@@ -111,22 +113,56 @@ export class GenerateProcessor {
     if (sources.length === 0) throw new PermanentJobError(ErrorCode.PDF_EXPIRED);
 
     let feedback: string | undefined;
-    for (let request = 0; request <= this.config.llm.invalidOutputRetries; request++) {
+    let invalidAnswers = 0;
+    let roleRetried = false;
+    for (;;) {
       const output = await this.callLlm(job, { targetRole: job.cv.targetRole, sources, feedback });
       if (job.stage !== 'validating') await this.state.enterStage(job, 'validating');
 
-      const parsed = cvDocumentSchema.safeParse(output);
-      if (parsed.success) return parsed.data;
-      feedback = parsed.error.issues
-        .slice(0, 20)
-        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-        .join('\n');
-      this.logger.warn(
-        { jobId: job.id, request, issues: parsed.error.issues.length },
-        'Invalid LLM output',
+      // 1. The schema (AC-6.6): an invalid answer is re-requested with the errors, ≤ N times.
+      const parsed = llmCvOutputSchema.safeParse(output);
+      if (!parsed.success) {
+        invalidAnswers++;
+        this.logger.warn(
+          { jobId: job.id, invalidAnswers, issues: parsed.error.issues.length },
+          'Invalid LLM output',
+        );
+        if (invalidAnswers > this.config.llm.invalidOutputRetries) {
+          throw new PermanentJobError(ErrorCode.LLM_INVALID_OUTPUT);
+        }
+        feedback = parsed.error.issues
+          .slice(0, 20)
+          .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+          .join('\n');
+        continue;
+      }
+
+      // 2. Grounding (FR-7): unsupported facts are removed and turned into questions.
+      const result = groundCv({
+        output: parsed.data,
+        sources: sources.map((s) => s.text),
+        targetRole: job.cv.targetRole,
+        checkCapitalizedTokens: this.config.grounding.checkCapitalizedTokens,
+        dropSummaryOnRoleClaim: roleRetried,
+      });
+      // AC-7.7: a summary claiming the target role gets one re-request, then it is dropped.
+      if (result.summaryRoleClaim && !roleRetried) {
+        roleRetried = true;
+        feedback =
+          'The summary claims the target role, which the sources do not support. Rewrite the summary without stating or implying that the person holds the target role.';
+        continue;
+      }
+      this.logger.log(
+        {
+          jobId: job.id,
+          removed: result.removed.length,
+          removedByReason: countBy(result.removed.map((r) => r.reason)),
+          questions: result.questions.length,
+        },
+        'Grounding finished',
       );
+      return result;
     }
-    throw new PermanentJobError(ErrorCode.LLM_INVALID_OUTPUT);
   }
 
   /** One LLM call within the job's time budget; permanent LLM errors fail the job (AC-5.6). */
@@ -134,9 +170,12 @@ export class GenerateProcessor {
     job: ActiveJob,
     request: Omit<GenerateCvRequest, 'signal'>,
   ): Promise<unknown> {
-    const remaining = job.deadlineAt.getTime() - Date.now();
-    if (remaining <= 0) throw new PermanentJobError(ErrorCode.JOB_TIMEOUT);
-    const signal = AbortSignal.timeout(Math.min(this.config.timeouts.llmMs, remaining));
+    // NFR-R3: retry layers multiply, so every call must fit before the job's deadline.
+    const callMs = this.config.timeouts.llmMs;
+    if (job.deadlineAt.getTime() - Date.now() < callMs) {
+      throw new PermanentJobError(ErrorCode.JOB_TIMEOUT);
+    }
+    const signal = AbortSignal.timeout(callMs);
     try {
       const response = await this.llm.generateCv({ ...request, signal });
       return response.output;
@@ -144,13 +183,16 @@ export class GenerateProcessor {
       if (err instanceof LlmError && !err.retryable) {
         throw new PermanentJobError(ErrorCode.LLM_UNAVAILABLE);
       }
-      if (signal.aborted && Date.now() >= job.deadlineAt.getTime()) {
-        throw new PermanentJobError(ErrorCode.JOB_TIMEOUT);
-      }
       throw err;
     } finally {
       // The LLM call took a while: stop here if the CV was deleted meanwhile (AC-5.9).
       await this.state.assertActive(job.id);
     }
   }
+}
+
+function countBy(values: string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const v of values) counts[v] = (counts[v] ?? 0) + 1;
+  return counts;
 }

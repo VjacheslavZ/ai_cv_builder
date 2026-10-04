@@ -3,12 +3,12 @@ import {
   ACTIVE_JOB_STATUSES,
   CV_WARNING_MESSAGES,
   jobErrorMessage,
-  type CvDocument,
   type CvWarning,
   type ErrorCode,
   type JobStage,
 } from '@cv/shared';
 import { CvEventsPublisher } from '../events/cv-events.publisher.js';
+import type { GroundingResult } from '../grounding/ground-cv.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import type { CvModel } from '../generated/prisma/models/Cv.js';
 import type { JobModel } from '../generated/prisma/models/Job.js';
@@ -103,17 +103,32 @@ export class JobState {
   }
 
   /**
-   * The result write (NFR-R6): under the CV row lock, the whole document, `version + 1`,
-   * `aiRevision + 1`, CV `ready`, job `completed`. Throws `JobStopped` (and writes nothing) if
+   * The result write (NFR-R6): under the CV row lock, the whole document, its questions, and
+   * the grounding report; `version + 1`, `aiRevision + 1`, CV `ready`, job `completed`. Throws `JobStopped` (and writes nothing) if
    * the job stopped being active or the CV was deleted.
    */
-  async complete(job: ActiveJob, document: CvDocument): Promise<void> {
+  async complete(job: ActiveJob, result: GroundingResult): Promise<void> {
+    const { document, questions, removed } = result;
     const version = await this.withLockedCv(job, async (tx) => {
       const { count } = await tx.job.updateMany({
         where: { id: job.id, status: ACTIVE },
         data: { status: 'completed', stage: 'completed', errorCode: null, errorMessage: null },
       });
       if (count === 0) throw new JobStopped();
+      // Questions and the report are written whole, so a re-run never duplicates them (NFR-R7).
+      await tx.question.deleteMany({ where: { cvId: job.cvId } });
+      await tx.question.createMany({
+        data: questions.map((q) => ({ cvId: job.cvId, ...q })),
+      });
+      await tx.groundingReport.deleteMany({ where: { jobId: job.id } });
+      await tx.groundingReport.create({
+        data: {
+          cvId: job.cvId,
+          jobId: job.id,
+          removed: removed.length,
+          items: removed as unknown as Prisma.InputJsonValue,
+        },
+      });
       const cv = await tx.cv.update({
         where: { id: job.cvId },
         data: {

@@ -31,6 +31,7 @@ export function testEnv(options: Omit<TestAppOptions, 'controllers'>): Record<st
     READY_CHECK_TIMEOUT_MS: '1000',
     REDIS_COMMAND_TIMEOUT_MS: '1000',
     WEB_ORIGIN: TEST_ORIGIN,
+    LLM_PROVIDER: 'fake',
     FAKE_LLM_DELAY_MS: '0',
     ...options.env,
   };
