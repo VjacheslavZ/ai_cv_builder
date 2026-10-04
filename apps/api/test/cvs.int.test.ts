@@ -267,7 +267,12 @@ describe('CV intake and CRUD', () => {
       expect(res.status).toBe(200);
       const list = res.body as CvSummaryDto[];
       expect(list.map((cv) => cv.title)).toEqual(['Second', 'First']);
-      expect(list[1]).toMatchObject({ id: older.cvId, status: 'generating', openQuestions: 2 });
+      expect(list[1]).toMatchObject({
+        id: older.cvId,
+        status: 'generating',
+        failureCode: null,
+        openQuestions: 2,
+      });
       expect(list[1]!.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 

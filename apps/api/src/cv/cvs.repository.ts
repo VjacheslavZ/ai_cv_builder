@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ACTIVE_JOB_STATUSES, type CreateCvResponse, type CvSummaryDto } from '@cv/shared';
+import { toErrorCode } from '../jobs/job.mapper.js';
 import type { CvModel } from '../generated/prisma/models/Cv.js';
 import type { QuestionModel } from '../generated/prisma/models/Question.js';
 import type { Prisma } from '../generated/prisma/client.js';
@@ -20,6 +21,7 @@ export class CvsRepository {
         id: true,
         title: true,
         status: true,
+        failureCode: true,
         updatedAt: true,
         _count: { select: { questions: { where: { status: 'open' } } } },
       },
@@ -28,6 +30,7 @@ export class CvsRepository {
       id: row.id,
       title: row.title,
       status: row.status,
+      failureCode: toErrorCode(row.failureCode),
       openQuestions: row._count.questions,
       updatedAt: row.updatedAt.toISOString(),
     }));

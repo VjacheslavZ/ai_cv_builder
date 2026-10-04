@@ -90,6 +90,8 @@ export interface CvSummaryDto {
   id: string;
   title: string;
   status: CvStatus;
+  /** Set when `status` is `failed`: the dashboard offers Retry only if it is retryable (AC-5.6). */
+  failureCode: ErrorCode | null;
   openQuestions: number;
   updatedAt: string;
 }
