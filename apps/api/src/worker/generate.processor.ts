@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { cvDocumentSchema, ErrorCode, type CvDocument } from '@cv/shared';
+import { ErrorCode } from '@cv/shared';
 import { UnrecoverableError } from 'bullmq';
 import { InjectConfig } from '../config/config.module.js';
+import type { GroundingResult } from '../grounding/ground-cv.js';
 import type { AppConfig } from '../config/env.schema.js';
 import {
   InjectLlmClient,
@@ -12,11 +13,13 @@ import {
 import { countMeaningfulChars, PdfExtractor } from '../pdf/pdf-extractor.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CvBullJob } from '../queue/cv-queue.service.js';
+import { runGenerationLoop } from './generation-loop.js';
 import { JobStopped, PermanentJobError } from './job-errors.js';
 import { JobState, type ActiveJob } from './job-state.js';
 
 /**
- * The `generate` pipeline: `extracting → generating → validating → completed`.
+ * The `generate` pipeline: `extracting → generating → validating → completed`. Every LLM
+ * answer passes the Zod schema and the grounding check before anything touches the CV.
  *
  * At-least-once: the same job may run twice (stalled recovery, sweeper re-enqueue). Every
  * stage starts with a guarded transition and the result is written whole under the CV row
@@ -49,8 +52,8 @@ export class GenerateProcessor {
       if (job.deadlineAt.getTime() <= Date.now())
         throw new PermanentJobError(ErrorCode.JOB_TIMEOUT);
       await this.extract(job);
-      const document = await this.generate(job);
-      await this.state.complete(job, document);
+      const result = await this.generate(job);
+      await this.state.complete(job, result);
       this.logger.log(
         { jobId, cvId: job.cvId, attempt, durationMs: Date.now() - startedAt },
         'Job completed',
@@ -100,7 +103,7 @@ export class GenerateProcessor {
   }
 
   /** `generating` + `validating`: an invalid answer is re-requested with the errors (AC-6.6). */
-  private async generate(job: ActiveJob): Promise<CvDocument> {
+  private async generate(job: ActiveJob): Promise<GroundingResult> {
     await this.state.enterStage(job, 'generating');
     const sources = await this.prisma.sourceText.findMany({
       where: { cvId: job.cvId },
@@ -110,23 +113,29 @@ export class GenerateProcessor {
     // The upload expired before extraction and there is no free text to fall back on.
     if (sources.length === 0) throw new PermanentJobError(ErrorCode.PDF_EXPIRED);
 
-    let feedback: string | undefined;
-    for (let request = 0; request <= this.config.llm.invalidOutputRetries; request++) {
-      const output = await this.callLlm(job, { targetRole: job.cv.targetRole, sources, feedback });
-      if (job.stage !== 'validating') await this.state.enterStage(job, 'validating');
-
-      const parsed = cvDocumentSchema.safeParse(output);
-      if (parsed.success) return parsed.data;
-      feedback = parsed.error.issues
-        .slice(0, 20)
-        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-        .join('\n');
-      this.logger.warn(
-        { jobId: job.id, request, issues: parsed.error.issues.length },
-        'Invalid LLM output',
-      );
-    }
-    throw new PermanentJobError(ErrorCode.LLM_INVALID_OUTPUT);
+    const { result } = await runGenerationLoop({
+      targetRole: job.cv.targetRole,
+      sources,
+      invalidOutputRetries: this.config.llm.invalidOutputRetries,
+      checkCapitalizedTokens: this.config.grounding.checkCapitalizedTokens,
+      call: async (request) => {
+        const output = await this.callLlm(job, request);
+        if (job.stage !== 'validating') await this.state.enterStage(job, 'validating');
+        return output;
+      },
+      onInvalidOutput: (invalidAnswers, issues) =>
+        this.logger.warn({ jobId: job.id, invalidAnswers, issues }, 'Invalid LLM output'),
+    });
+    this.logger.log(
+      {
+        jobId: job.id,
+        removed: result.removed.length,
+        removedByReason: countBy(result.removed.map((r) => r.reason)),
+        questions: result.questions.length,
+      },
+      'Grounding finished',
+    );
+    return result;
   }
 
   /** One LLM call within the job's time budget; permanent LLM errors fail the job (AC-5.6). */
@@ -134,9 +143,12 @@ export class GenerateProcessor {
     job: ActiveJob,
     request: Omit<GenerateCvRequest, 'signal'>,
   ): Promise<unknown> {
-    const remaining = job.deadlineAt.getTime() - Date.now();
-    if (remaining <= 0) throw new PermanentJobError(ErrorCode.JOB_TIMEOUT);
-    const signal = AbortSignal.timeout(Math.min(this.config.timeouts.llmMs, remaining));
+    // NFR-R3: retry layers multiply, so every call must fit before the job's deadline.
+    const callMs = this.config.timeouts.llmMs;
+    if (job.deadlineAt.getTime() - Date.now() < callMs) {
+      throw new PermanentJobError(ErrorCode.JOB_TIMEOUT);
+    }
+    const signal = AbortSignal.timeout(callMs);
     try {
       const response = await this.llm.generateCv({ ...request, signal });
       return response.output;
@@ -144,13 +156,16 @@ export class GenerateProcessor {
       if (err instanceof LlmError && !err.retryable) {
         throw new PermanentJobError(ErrorCode.LLM_UNAVAILABLE);
       }
-      if (signal.aborted && Date.now() >= job.deadlineAt.getTime()) {
-        throw new PermanentJobError(ErrorCode.JOB_TIMEOUT);
-      }
       throw err;
     } finally {
       // The LLM call took a while: stop here if the CV was deleted meanwhile (AC-5.9).
       await this.state.assertActive(job.id);
     }
   }
+}
+
+function countBy(values: string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const v of values) counts[v] = (counts[v] ?? 0) + 1;
+  return counts;
 }

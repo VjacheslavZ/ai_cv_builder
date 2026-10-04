@@ -21,11 +21,15 @@ export const envSchema = z.object({
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
   REDIS_URL: z.url({ protocol: /^rediss?$/ }),
 
-  // Required by the worker from Phase 3 on; optional until then so the stack starts without it.
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  // Required by the worker when LLM_PROVIDER=anthropic; the API never needs it.
+  ANTHROPIC_API_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
   ANTHROPIC_MODEL: z.string().min(1).default('claude-sonnet-5-5'),
-  // Phase 2 runs the whole pipeline on the scripted fake; Phase 3 adds `anthropic`.
-  LLM_PROVIDER: z.enum(['fake']).default('fake'),
+  ANTHROPIC_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
+  ANTHROPIC_MAX_TOKENS: count(16_000),
+  // `fake` (scripted, offline) for tests and the e2e stack.
+  LLM_PROVIDER: z.enum(['anthropic', 'fake']).default('anthropic'),
+  // AC-7.3's capitalized-token rule for bullets and the summary: strict, so it can be turned off.
+  GROUNDING_CHECK_CAPITALIZED: z.enum(['true', 'false']).default('true'),
   // How long the fake "thinks", so the stages are visible in the browser.
   FAKE_LLM_DELAY_MS: msOrZero(1_500),
   // Required in production; an empty value (as in .env.example) counts as unset.
@@ -118,7 +122,13 @@ export function loadConfig(source: NodeJS.ProcessEnv) {
     logLevel: env.LOG_LEVEL,
     databaseUrl: env.DATABASE_URL,
     redisUrl: env.REDIS_URL,
-    anthropic: { apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL },
+    anthropic: {
+      apiKey: env.ANTHROPIC_API_KEY,
+      model: env.ANTHROPIC_MODEL,
+      effort: env.ANTHROPIC_EFFORT,
+      maxTokens: env.ANTHROPIC_MAX_TOKENS,
+    },
+    grounding: { checkCapitalizedTokens: env.GROUNDING_CHECK_CAPITALIZED === 'true' },
     llm: {
       provider: env.LLM_PROVIDER,
       fakeDelayMs: env.FAKE_LLM_DELAY_MS,

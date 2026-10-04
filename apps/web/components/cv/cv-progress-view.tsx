@@ -4,11 +4,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { CvDraftPreview } from '@/components/cv/cv-draft-preview';
-import { CvWarnings, GenerationFailed } from '@/components/cv/cv-notices';
+import { CvWarnings } from '@/components/cv/cv-notices';
 import { CvPageShell } from '@/components/cv/cv-page-shell';
 import { CvStatusBadge } from '@/components/cv/cv-status-badge';
+import { GenerationFailed } from '@/components/cv/generation-failed';
 import { GenerationStages } from '@/components/cv/generation-stages';
+import { QuestionsList } from '@/components/cv/questions-list';
 import { ApiRequestError } from '@/lib/api-fetch';
+import { questionMarks } from '@/lib/question-marks';
 import { cvQuery, cvsQuery } from '@/lib/queries/cvs';
 import { useCvProgress } from '@/lib/use-cv-progress';
 
@@ -45,8 +48,22 @@ export function CvProgressView({ cvId }: { cvId: string }) {
     <CvPageShell title={detail.title} badge={<CvStatusBadge status={status} />}>
       <CvWarnings warnings={progress.cv?.warnings ?? detail.warnings} />
       {status === 'generating' && <GenerationStages job={progress.job} />}
-      {status === 'failed' && <GenerationFailed message={progress.cv?.failureMessage ?? null} />}
-      {status === 'ready' && detail.document && <CvDraftPreview document={detail.document} />}
+      {status === 'failed' && (
+        <GenerationFailed
+          cvId={cvId}
+          failureCode={progress.cv?.failureCode ?? detail.failureCode}
+          message={progress.cv?.failureMessage ?? detail.failureMessage}
+          failedAt={detail.latestJob?.status === 'failed' ? detail.latestJob.updatedAt : null}
+        />
+      )}
+      {status === 'ready' && detail.document && (
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+          <CvDraftPreview document={detail.document} marks={questionMarks(detail.questions)} />
+          <div className="lg:sticky lg:top-4">
+            <QuestionsList questions={detail.questions} />
+          </div>
+        </div>
+      )}
     </CvPageShell>
   );
 }

@@ -27,7 +27,7 @@ Status: v1.1.
 |---|---|---|
 | 1 | Input | PDF, free text, or both, plus a target role. Both sources count as facts. |
 | 2 | PDF handling | Text is extracted on the server. PDFs without a text layer (scans) are rejected with a clear error. Limits: ≤ 10 MB, ≤ 10 pages. |
-| 3 | CV language | Always English. Input may be in any language. |
+| 3 | Language | English only: the input (PDF and free text) and the generated CV. No translation, no transliteration, no localized UI. |
 | 4 | Progress | A job with stages, state in Postgres. The worker publishes stage changes to Redis Pub/Sub, the API forwards them via SSE; if the connection drops, the client falls back to a status `GET`. |
 | 5 | When questions are asked | Together with the draft. Questions are non-blocking: they can be skipped and the PDF can still be downloaded. |
 | 6 | Applying an answer | The AI rewrites only the related section; the change is applied immediately and highlighted. Undo of the last AI change is available. |
@@ -236,10 +236,10 @@ Priorities:
 - **When** the draft is generated
 - **Then** the most role-relevant entries come first in Experience (more recent first on ties), and within an entry the most relevant bullets come first. The user can reorder manually (see FR-10)
 
-**AC-6.5 English language**
-- **Given** the source is in Russian
+**AC-6.5 English only**
+- **Given** the source is in English
 - **When** the draft is generated
-- **Then** all CV text is in English. Proper nouns (companies, institutions, full name) are not invented: if the source has no reliable Latin spelling, transliteration is used and the question "How should we spell X in English?" is created
+- **Then** all CV text is in English and proper nouns (companies, institutions, full name) are kept exactly as spelled in the source. Non-English input is not supported: nothing is translated or transliterated, so facts that do not match the source verbatim are removed by grounding (FR-7)
 
 **AC-6.6 Output structure**
 - **Given** the LLM returned a response
@@ -259,16 +259,16 @@ Priorities:
 - **Then** the server checks that the normalized quote (case, whitespace, line breaks, typographic quotes and dashes, ligatures, soft hyphens, and end-of-line hyphenation such as `devel-\nopment` from PDF extraction) is a substring of the normalized source. If not, the element is considered unsupported
 
 **AC-7.3 Atomic fact check**
-- **Given** the element text contains numbers (including `%`, `$`, `k`, `x`), years and dates, emails, phone numbers, URLs, company and institution names
+- **Given** the element text contains numbers (amounts, percentages, years, phone digits), emails, URLs, company and institution names
 - **When** the check runs
-- **Then** each such atom is found in the source (with normalization). For example, "Increased throughput by 40%" is allowed only if "40" and "%" appear in the source in the same context. Otherwise the element is unsupported
-- "Same context" means inside that element's `evidence` quotes. Dates match after parsing to year (and month), including month names in the source language (`январь 2020` = `Jan 2020` = `01.2020`)
-- Company and institution names are checked in the structured fields (`company`, `institution`, `contact.name`). Inside free text (bullets, summary) every capitalized token that does not start a sentence and is not a known skill must appear in the element's evidence (or be its transliteration, AC-6.5). The rule is configurable, since it can reject honest wording
+- **Then** every number is found in the element's evidence (thousands separators and leading zeros ignored), and an email or URL is found there as written (case, scheme, `www.`, and a trailing slash ignored). For example, "Increased throughput by 40%" is allowed only if "40" appears in its quotes. Otherwise the element is unsupported
+- "Same context" means inside that element's `evidence` quotes. Units, currencies, and months are not checked deterministically (`40%` vs `40 servers`, `Jan` vs `Mar 2020`): the prompt tells the model to copy numbers with their units and dates exactly as the source writes them
+- Company and institution names are checked in the structured fields (`company`, `institution`, `contact.name`). Inside free text (bullets, summary) every capitalized token that does not start a sentence must appear in the element's evidence. The rule is configurable, since it can reject honest wording
 
 **AC-7.4 Skills**
 - **Given** the LLM added the skill "Kubernetes"
 - **When** the check runs
-- **Then** the skill stays only if it appears in the source (case-insensitive, with known synonyms like `k8s`). A skill that "fits the role" but is absent from the source is removed
+- **Then** the skill stays only if its name appears, as a whole word and case-insensitive, inside its own `evidence` quote (which is itself checked against the source, AC-7.2). The prompt asks the model to keep the source's spelling (no synonyms, expansions, or respellings); there is no synonym list, since the product serves every profession. A skill that "fits the role" but is absent from the source is removed
 
 **AC-7.5 What happens to unsupported content**
 - **Given** an element failed the check
@@ -407,9 +407,9 @@ Priorities:
 - **Then** the PDF is built from the latest saved version. The client waits for autosave to finish before downloading
 
 **AC-11.4 Multiple pages and characters**
-- **Given** a long CV or non-ASCII characters (é, ü, ł, Cyrillic in the name)
+- **Given** a long CV or accented Latin characters (é, ü, ł in a name)
 - **When** the PDF is generated
-- **Then** text flows onto the next page without truncation and all characters render (a font with Latin Extended + Cyrillic is embedded in the PDF)
+- **Then** text flows onto the next page without truncation and all characters render (a font with Latin Extended is embedded in the PDF)
 
 **AC-11.5 Empty fields**
 - **Given** the user has no phone number and no Education section
@@ -466,7 +466,7 @@ From the task:
 - Deployment: the project runs locally only, via `docker compose up`.
 
 Decided during clarification:
-- Generating CVs in languages other than English.
+- Any language other than English: non-English input, CVs in other languages, translation, transliteration, a localized UI.
 - OCR of scanned PDFs.
 - Import from DOCX, LinkedIn, and similar sources.
 - Storing original PDFs.
@@ -531,7 +531,7 @@ Decided during clarification:
 
 ### 5.4 Testability (minimum required set)
 
-1. **Unit:** the grounding validator (normalization, atoms, skills, synonyms, prompt-injection fixture) — the product's primary safeguard.
+1. **Unit:** the grounding validator (normalization, atoms, names and skills, prompt-injection fixture) — the product's primary safeguard.
 2. **Unit:** Zod schemas for LLM output against a set of "bad" responses; the Anthropic error classifier (retry or not).
 3. **Integration (real Postgres + Redis in docker):** job lifecycle — enqueue, stalled-job recovery, retries, `UnrecoverableError` → `failed`, sweeper re-enqueue; per-CV lock + version fencing; race between an AI update and a manual `PATCH` (`409`, `userEdited` untouched); Redis down → `503`.
 4. **E2E API:** user isolation across all endpoints; full flow with a mocked Anthropic client.
@@ -554,7 +554,7 @@ All tests run without a real `ANTHROPIC_API_KEY`: the LLM client sits behind an 
 - **DB:** PostgreSQL 16 via **Prisma ORM 7** (`prisma-client` generator, `@prisma/adapter-pg`, `prisma.config.ts`, `prisma migrate deploy` on start). The CV is stored as `Json` (JSONB) plus `version` (every write) and `aiRevision` (AI writes only, AC-9.7) columns; questions, jobs, source, and temporary PDF uploads live in separate tables. Row locks (`SELECT … FOR UPDATE`) are taken with `$queryRaw` inside an interactive `$transaction`.
 - **Redis:** Redis 7, one instance, AOF + `noeviction` (see 6.1). The client uses `ioredis` (`maxRetriesPerRequest: null` for BullMQ connections).
 - **LLM:** Anthropic SDK, model set via env, responses only via structured output.
-- **PDF:** `@react-pdf/renderer` or `pdfkit` on the server, with an embedded Latin Extended + Cyrillic font.
+- **PDF:** `@react-pdf/renderer` or `pdfkit` on the server, with an embedded Latin Extended font.
 - **Compose services:** `db`, `redis`, `api`, `worker`, `web`.
 
 ### 6.1 Where Redis is used (and where it is not)

@@ -68,6 +68,9 @@ export interface CreateCvResponse {
   jobId: string;
 }
 
+/** `202` from `POST /api/cvs/:id/retry`: the new `generate` job on the saved source. */
+export type RetryCvResponse = CreateCvResponse;
+
 export const CV_STATUSES = ['generating', 'ready', 'failed'] as const;
 export type CvStatus = (typeof CV_STATUSES)[number];
 

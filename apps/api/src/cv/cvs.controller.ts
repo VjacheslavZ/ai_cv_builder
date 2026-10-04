@@ -22,6 +22,7 @@ import {
   type CreateCvResponse,
   type CvDetailDto,
   type CvSummaryDto,
+  type RetryCvResponse,
 } from '@cv/shared';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { ApiException } from '../common/errors/api.exception.js';
@@ -97,6 +98,13 @@ export class CvsController {
   @Get(':id')
   get(@CurrentUser() user: AuthUser, @UuidParam('id') id: string): Promise<CvDetailDto> {
     return this.service.get(id, user.id);
+  }
+
+  /** AC-5.6: `202 { cvId, jobId }`, a new generation of a failed CV on its saved source. */
+  @Post(':id/retry')
+  @HttpCode(HttpStatus.ACCEPTED)
+  retry(@CurrentUser() user: AuthUser, @UuidParam('id') id: string): Promise<RetryCvResponse> {
+    return this.service.retry(id, user.id);
   }
 
   @Delete(':id')

@@ -63,7 +63,7 @@ export function NewCvForm() {
         <TextField
           id="role"
           label="Target role"
-          placeholder="e.g. Senior Backend Engineer"
+          placeholder="e.g. Sales Manager"
           autoComplete="off"
           error={errors.role}
           {...form.register('role')}

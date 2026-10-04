@@ -16,6 +16,7 @@
     "db:deploy": "prisma migrate deploy"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@better-auth/redis-storage": "^1.7.7",
     "@cv/shared": "workspace:*",
     "@nestjs/common": "^12.1.2",

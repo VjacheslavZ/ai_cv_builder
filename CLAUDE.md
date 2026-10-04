@@ -9,6 +9,7 @@ Rules and pointers for working in this repo. The SPEC is the source of truth; th
 - Production images: `docker compose -f docker-compose.yml up --build` (`pnpm prod`); `docker-compose.override.yml` must not leak into it, so production-only settings stay in `docker-compose.yml`.
 - `pnpm dev:host` runs the apps on the host instead (needs `pnpm infra:up` and the compose app containers stopped).
 - `pnpm typecheck`, `pnpm lint`, `pnpm format`.
+- `pnpm eval:llm`: manual LLM quality run against the **real API** (reads `ANTHROPIC_API_KEY` from `.env`, costs money, never in CI). Runs the production generation loop; grades with deterministic checks, an LLM judge (`EVAL_JUDGE_MODEL`, default `claude-haiku-4-5`), and a blind comparison with the frozen baseline (`EVAL_SAVE_BASELINE=true` to save one); results in `apps/api/eval/out/` (git-ignored). Save a baseline before every prompt change, run it after (docs/plans/testing.md).
 - `pnpm test:unit` (no Docker), `pnpm test:int` (Testcontainers, needs Docker), `pnpm test` (both). One file: `pnpm vitest run --project api-int apps/api/test/<name>.int.test.ts`. Integration tests run the HTTP app (`createTestApp`) and the worker (`startTestWorker`, scripted `FakeLlmClient`) in-process with their own database and `BULLMQ_PREFIX` (`uniqueQueuePrefix()`); call `Sweeper.tick()` directly instead of waiting for the interval. The crash test compiles the api into `apps/api/.test-build` and runs the worker as a child process.
 - better-auth models: regenerate with `pnpm dlx auth@<better-auth version> generate --config <file> --output prisma/schema.prisma` against a minimal config with the same `database`/`secondaryStorage`/plugins, then re-apply the plural `@@map` and `Timestamptz` edits and add a migration.
 - Prisma (from `apps/api`): `pnpm db:migrate` (create + apply, dev), `pnpm db:deploy`, `pnpm db:generate`. Config: `apps/api/prisma.config.ts`.
@@ -41,6 +42,12 @@ Rules and pointers for working in this repo. The SPEC is the source of truth; th
 - Never block the worker's event loop: BullMQ renews locks only while it is free (CPU work such as PDF parsing runs in a `worker_thread`). Keep `lockDuration` near the default.
 - Permanent job failures throw `PermanentJobError(code)` (marked failed, then `UnrecoverableError`); anything else is retried by BullMQ and fails the DB job on the last attempt.
 - Manual edits are tracked in `CvDocument.editedPaths` (field paths), not per-field flags.
+- **English only** (SPEC decision 3): input, CV, and UI. Do not add i18n, translation, transliteration, or non-English rules (month names, units, injection patterns) to grounding or prompts.
+- **LLM output is untrusted.** Every response goes through the Zod schema (`llmCvOutputSchema`) **and** the deterministic grounding check (`apps/api/src/grounding/`) before it can touch a CV; unsupported facts are removed and become `unverified` questions. Never bypass either, never save a partially valid answer.
+- Source text reaches the LLM only as delimited data (`<source kind="…">`, `llm/prompt.ts`); sentences that address the model are stripped before grounding (`grounding/source.ts`). Never log prompts, responses, or source text: log ids, token counts, durations, removal counts.
+- Every LLM call checks the job deadline first (a call that no longer fits fails the job with `JOB_TIMEOUT`); errors go through `classifyLlmError` (retryable vs permanent).
+- Structured output uses `output_config.format` (from the Zod schema), not forced `tool_choice`: current models reject forced tool use.
+- Tests never need `ANTHROPIC_API_KEY`: they use `FakeLlmClient` (`LLM_PROVIDER=fake`, scripted with `valid` / `invalid` / `raw` / `fabricated` / `transient` / `permanent` / `slow`).
 - The Next rewrite does not forward the client IP; `apps/web/server/forwarded-for.cjs` (preloaded in the web image) sets `X-Forwarded-For` from the socket and overwrites client-supplied values. Behind a trusted load balancer it must append instead.
 
 ## Conventions

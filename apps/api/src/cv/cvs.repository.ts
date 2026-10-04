@@ -37,6 +37,17 @@ export class CvsRepository {
     return this.prisma.cv.findFirst({ where: { id, userId } });
   }
 
+  /** The owned CV under `SELECT … FOR UPDATE` in the caller's transaction, or `null`. */
+  async lockOwned(
+    tx: Prisma.TransactionClient,
+    id: string,
+    userId: string,
+  ): Promise<CvModel | null> {
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM cvs WHERE id = ${id}::uuid AND "userId" = ${userId}::uuid FOR UPDATE`;
+    return locked.length > 0 ? tx.cv.findUnique({ where: { id } }) : null;
+  }
+
   listQuestions(cvId: string): Promise<QuestionModel[]> {
     return this.prisma.question.findMany({
       where: { cvId },

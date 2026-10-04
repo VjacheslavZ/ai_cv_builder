@@ -17,11 +17,12 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
+    "test": "vitest run --project shared --project api-unit --project api-int --project web",
     "test:unit": "vitest run --project shared --project api-unit --project web",
     "test:int": "vitest run --project api-int",
     "infra:up": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --wait db redis redisinsight",
-    "infra:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down"
+    "infra:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
+    "eval:llm": "vitest run --project api-eval"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
