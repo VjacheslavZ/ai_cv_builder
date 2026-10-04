@@ -133,8 +133,10 @@ export function applyProgress(state: ProgressState, action: ProgressAction): Pro
       };
     }
 
+    // Answers being applied (Phase 4) are the editor's business, not the generation's.
     case 'heartbeat':
     case 'section_updated':
+    case 'question_failed':
       return state;
   }
 }

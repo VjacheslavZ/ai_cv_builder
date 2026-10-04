@@ -109,8 +109,10 @@ export type CvEvent =
   | { type: 'stage'; jobId: string; stage: JobStage; attempts: number }
   | { type: 'completed'; jobId: string; version: number }
   | { type: 'failed'; jobId: string; code: ErrorCode; message: string }
-  /** An AI write to one section (Phase 4). */
-  | { type: 'section_updated'; path: string; version: number }
+  /** An AI write to one section (Phase 4): `path` is the rewritten entry or section. */
+  | { type: 'section_updated'; path: string; version: number; questionId: string }
+  /** An `apply_answer` job failed for good: the CV is unchanged, the question is `failed`. */
+  | { type: 'question_failed'; jobId: string; questionId: string }
   | { type: 'heartbeat' };
 
 export type CvEventType = CvEvent['type'];
