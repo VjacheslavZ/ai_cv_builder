@@ -13,6 +13,9 @@ next-env.d.ts
 # generated
 apps/api/src/generated/
 
+# LLM evaluation results and baseline (pnpm eval:llm)
+apps/api/eval/out/
+
 # env
 .env
 .env.*

@@ -23,7 +23,7 @@ export default defineConfig({
         test: {
           name: 'api-unit',
           root: './apps/api',
-          include: ['src/**/*.test.ts'],
+          include: ['src/**/*.test.ts', 'eval/**/*.test.ts'],
           environment: 'node',
         },
       },
@@ -37,6 +37,17 @@ export default defineConfig({
           globalSetup: ['./test/support/global-setup.ts'],
           testTimeout: 30_000,
           hookTimeout: 120_000,
+        },
+      },
+      {
+        // Manual, real API key, costs money: `pnpm eval:llm`. Not in `pnpm test` or CI.
+        ...nestTransform,
+        test: {
+          name: 'api-eval',
+          root: './apps/api',
+          include: ['eval/**/*.eval.ts'],
+          environment: 'node',
+          testTimeout: 300_000,
         },
       },
       {

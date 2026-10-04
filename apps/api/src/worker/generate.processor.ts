@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ErrorCode, llmCvOutputSchema } from '@cv/shared';
+import { ErrorCode } from '@cv/shared';
 import { UnrecoverableError } from 'bullmq';
 import { InjectConfig } from '../config/config.module.js';
-import { groundCv, type GroundingResult } from '../grounding/ground-cv.js';
+import type { GroundingResult } from '../grounding/ground-cv.js';
 import type { AppConfig } from '../config/env.schema.js';
 import {
   InjectLlmClient,
@@ -13,6 +13,7 @@ import {
 import { countMeaningfulChars, PdfExtractor } from '../pdf/pdf-extractor.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CvBullJob } from '../queue/cv-queue.service.js';
+import { runGenerationLoop } from './generation-loop.js';
 import { JobStopped, PermanentJobError } from './job-errors.js';
 import { JobState, type ActiveJob } from './job-state.js';
 
@@ -112,57 +113,29 @@ export class GenerateProcessor {
     // The upload expired before extraction and there is no free text to fall back on.
     if (sources.length === 0) throw new PermanentJobError(ErrorCode.PDF_EXPIRED);
 
-    let feedback: string | undefined;
-    let invalidAnswers = 0;
-    let roleRetried = false;
-    for (;;) {
-      const output = await this.callLlm(job, { targetRole: job.cv.targetRole, sources, feedback });
-      if (job.stage !== 'validating') await this.state.enterStage(job, 'validating');
-
-      // 1. The schema (AC-6.6): an invalid answer is re-requested with the errors, ≤ N times.
-      const parsed = llmCvOutputSchema.safeParse(output);
-      if (!parsed.success) {
-        invalidAnswers++;
-        this.logger.warn(
-          { jobId: job.id, invalidAnswers, issues: parsed.error.issues.length },
-          'Invalid LLM output',
-        );
-        if (invalidAnswers > this.config.llm.invalidOutputRetries) {
-          throw new PermanentJobError(ErrorCode.LLM_INVALID_OUTPUT);
-        }
-        feedback = parsed.error.issues
-          .slice(0, 20)
-          .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-          .join('\n');
-        continue;
-      }
-
-      // 2. Grounding (FR-7): unsupported facts are removed and turned into questions.
-      const result = groundCv({
-        output: parsed.data,
-        sources: sources.map((s) => s.text),
-        targetRole: job.cv.targetRole,
-        checkCapitalizedTokens: this.config.grounding.checkCapitalizedTokens,
-        dropSummaryOnRoleClaim: roleRetried,
-      });
-      // AC-7.7: a summary claiming the target role gets one re-request, then it is dropped.
-      if (result.summaryRoleClaim && !roleRetried) {
-        roleRetried = true;
-        feedback =
-          'The summary claims the target role, which the sources do not support. Rewrite the summary without stating or implying that the person holds the target role.';
-        continue;
-      }
-      this.logger.log(
-        {
-          jobId: job.id,
-          removed: result.removed.length,
-          removedByReason: countBy(result.removed.map((r) => r.reason)),
-          questions: result.questions.length,
-        },
-        'Grounding finished',
-      );
-      return result;
-    }
+    const { result } = await runGenerationLoop({
+      targetRole: job.cv.targetRole,
+      sources,
+      invalidOutputRetries: this.config.llm.invalidOutputRetries,
+      checkCapitalizedTokens: this.config.grounding.checkCapitalizedTokens,
+      call: async (request) => {
+        const output = await this.callLlm(job, request);
+        if (job.stage !== 'validating') await this.state.enterStage(job, 'validating');
+        return output;
+      },
+      onInvalidOutput: (invalidAnswers, issues) =>
+        this.logger.warn({ jobId: job.id, invalidAnswers, issues }, 'Invalid LLM output'),
+    });
+    this.logger.log(
+      {
+        jobId: job.id,
+        removed: result.removed.length,
+        removedByReason: countBy(result.removed.map((r) => r.reason)),
+        questions: result.questions.length,
+      },
+      'Grounding finished',
+    );
+    return result;
   }
 
   /** One LLM call within the job's time budget; permanent LLM errors fail the job (AC-5.6). */
