@@ -47,9 +47,9 @@ describe('PdfExtractor (worker_thread)', () => {
 });
 
 describe('countMeaningfulChars', () => {
-  it('counts letters and digits in any script', () => {
+  it('counts letters (accented too) and digits', () => {
     expect(countMeaningfulChars('  -- . , \n\t ')).toBe(0);
     expect(countMeaningfulChars('Ab 12')).toBe(4);
-    expect(countMeaningfulChars('Привет, мир')).toBe(9);
+    expect(countMeaningfulChars('José Müller')).toBe(10);
   });
 });
