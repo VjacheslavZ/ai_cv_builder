@@ -5,7 +5,9 @@ import type { AppConfig } from '../config/env.schema.js';
 import { CvEventsHub } from '../events/cv-events.hub.js';
 import { JobsModule } from '../jobs/jobs.module.js';
 import { GenerationLimits } from '../rate-limit/generation-limits.js';
+import { CvPdfRenderer } from '../pdf/cv-pdf-renderer.js';
 import { CvEditingService } from './cv-editing.service.js';
+import { CvExportService } from './cv-export.service.js';
 import { CvEventsController } from './cv-events.controller.js';
 import { CvsController } from './cvs.controller.js';
 import { CvsRepository } from './cvs.repository.js';
@@ -29,6 +31,8 @@ import { QuestionsService } from './questions.service.js';
     CvsRepository,
     CvsService,
     CvEditingService,
+    CvExportService,
+    CvPdfRenderer,
     QuestionsService,
     CvEventsHub,
     GenerationLimits,
