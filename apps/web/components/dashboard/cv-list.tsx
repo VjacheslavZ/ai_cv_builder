@@ -2,11 +2,8 @@
 
 import type { CvSummaryDto } from '@cv/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Trash2Icon } from 'lucide-react';
-import Link from 'next/link';
 import { useState } from 'react';
 
-import { CvStatusBadge } from '@/components/cv/cv-status-badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -20,19 +17,7 @@ import {
 import { toast } from '@/components/ui/toast';
 import { ApiRequestError } from '@/lib/api-fetch';
 import { cvsQuery, deleteCv } from '@/lib/queries/cvs';
-
-const dateFormat = new Intl.DateTimeFormat('en-GB', {
-  day: 'numeric',
-  month: 'short',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-});
-
-function questionsLabel(count: number): string | null {
-  if (count === 0) return null;
-  return count === 1 ? '1 open question' : `${count} open questions`;
-}
+import { CvListItem } from './cv-list-item';
 
 /** The dashboard (AC-12.1): newest first, status, open questions, last change. */
 export function CvList() {
@@ -57,33 +42,9 @@ export function CvList() {
   return (
     <>
       <ul className="flex flex-col divide-y rounded-xl border">
-        {data.map((cv) => {
-          const questions = questionsLabel(cv.openQuestions);
-          return (
-            <li key={cv.id} className="flex items-center gap-2 p-2 pl-4">
-              <Link
-                href={`/cvs/${cv.id}`}
-                className="flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-1 rounded-md py-1 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                <span className="truncate font-medium">{cv.title}</span>
-                <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-                  <CvStatusBadge status={cv.status} />
-                  {questions && <span>{questions}</span>}
-                  <time dateTime={cv.updatedAt}>{dateFormat.format(new Date(cv.updatedAt))}</time>
-                </span>
-              </Link>
-              <Button
-                variant="ghost"
-                size="icon-lg"
-                className="size-11"
-                aria-label={`Delete ${cv.title}`}
-                onClick={() => setToDelete(cv)}
-              >
-                <Trash2Icon />
-              </Button>
-            </li>
-          );
-        })}
+        {data.map((cv) => (
+          <CvListItem key={cv.id} cv={cv} onDelete={() => setToDelete(cv)} />
+        ))}
       </ul>
       <DeleteCvDialog cv={toDelete} onClose={() => setToDelete(null)} />
     </>
