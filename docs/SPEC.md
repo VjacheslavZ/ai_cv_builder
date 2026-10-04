@@ -259,16 +259,16 @@ Priorities:
 - **Then** the server checks that the normalized quote (case, whitespace, line breaks, typographic quotes and dashes, ligatures, soft hyphens, and end-of-line hyphenation such as `devel-\nopment` from PDF extraction) is a substring of the normalized source. If not, the element is considered unsupported
 
 **AC-7.3 Atomic fact check**
-- **Given** the element text contains numbers (including `%`, `$`, `k`, `x`), years and dates, emails, phone numbers, URLs, company and institution names
+- **Given** the element text contains numbers (amounts, percentages, years, phone digits), emails, URLs, company and institution names
 - **When** the check runs
-- **Then** each such atom is found in the source (with normalization). For example, "Increased throughput by 40%" is allowed only if "40" and "%" appear in the source in the same context. Otherwise the element is unsupported
-- "Same context" means inside that element's `evidence` quotes. Dates match after parsing to year (and month), with English month names (`January 2020` = `Jan 2020` = `01.2020` = `2020-01`)
+- **Then** every number is found in the element's evidence (thousands separators and leading zeros ignored), and an email or URL is found there as written (case, scheme, `www.`, and a trailing slash ignored). For example, "Increased throughput by 40%" is allowed only if "40" appears in its quotes. Otherwise the element is unsupported
+- "Same context" means inside that element's `evidence` quotes. Units, currencies, and months are not checked deterministically (`40%` vs `40 servers`, `Jan` vs `Mar 2020`): the prompt tells the model to copy numbers with their units and dates exactly as the source writes them
 - Company and institution names are checked in the structured fields (`company`, `institution`, `contact.name`). Inside free text (bullets, summary) every capitalized token that does not start a sentence must appear in the element's evidence. The rule is configurable, since it can reject honest wording
 
 **AC-7.4 Skills**
 - **Given** the LLM added the skill "Kubernetes"
 - **When** the check runs
-- **Then** the skill stays only if it appears in the source: case-insensitive, with spaces, hyphens, and dots optional (`e-commerce` = `ecommerce`), or as either half of an abbreviation the source itself defines (`Certified Public Accountant (CPA)`). There is no hand-written synonym list: the product serves every profession, not only software. A skill that "fits the role" but is absent from the source is removed
+- **Then** the skill stays only if its name appears, as a whole word and case-insensitive, inside its own `evidence` quote (which is itself checked against the source, AC-7.2). The prompt asks the model to keep the source's spelling (no synonyms, expansions, or respellings); there is no synonym list, since the product serves every profession. A skill that "fits the role" but is absent from the source is removed
 
 **AC-7.5 What happens to unsupported content**
 - **Given** an element failed the check
@@ -531,7 +531,7 @@ Decided during clarification:
 
 ### 5.4 Testability (minimum required set)
 
-1. **Unit:** the grounding validator (normalization, atoms, skills and abbreviations, prompt-injection fixture) — the product's primary safeguard.
+1. **Unit:** the grounding validator (normalization, atoms, names and skills, prompt-injection fixture) — the product's primary safeguard.
 2. **Unit:** Zod schemas for LLM output against a set of "bad" responses; the Anthropic error classifier (retry or not).
 3. **Integration (real Postgres + Redis in docker):** job lifecycle — enqueue, stalled-job recovery, retries, `UnrecoverableError` → `failed`, sweeper re-enqueue; per-CV lock + version fencing; race between an AI update and a manual `PATCH` (`409`, `userEdited` untouched); Redis down → `503`.
 4. **E2E API:** user isolation across all endpoints; full flow with a mocked Anthropic client.
