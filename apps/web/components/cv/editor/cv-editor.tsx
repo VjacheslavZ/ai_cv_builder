@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { questionMarks } from '@/lib/question-marks';
 import { cvQuery, cvsQuery } from '@/lib/queries/cvs';
 import { ContactEditor } from './contact-editor';
+import { DownloadPdfButton } from './download-pdf-button';
 import { EditorProvider } from './editor-context';
 import { EducationEditor, ExperienceEditor, SkillsEditor, SummaryEditor } from './list-editors';
 import { activeQuestions, QuestionsPanel } from './questions-panel';
@@ -74,7 +75,10 @@ export function CvEditor({ detail }: { detail: CvDetailDto & { document: CvDocum
               </button>
             ))}
           </div>
-          <SaveStatus autosave={autosave} />
+          <div className="ml-auto flex items-center gap-3">
+            <SaveStatus autosave={autosave} />
+            <DownloadPdfButton cvId={detail.id} autosave={autosave} />
+          </div>
         </div>
         <ConflictBanner autosave={autosave} onDiscard={discard} />
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">

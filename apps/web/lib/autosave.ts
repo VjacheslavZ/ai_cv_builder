@@ -91,6 +91,26 @@ export class Autosave {
   }
 
   /**
+   * Saves now and resolves once nothing is unsaved (`true`), or with `false` as soon as a save
+   * fails or conflicts. "Download PDF" waits on it: the server renders the saved version
+   * (AC-11.3).
+   */
+  whenSaved(): Promise<boolean> {
+    this.flush();
+    return new Promise((resolve) => {
+      const check = () => {
+        const { status } = this.state;
+        const failed = status === 'error' || status === 'conflict';
+        if (!failed && this.dirty) return;
+        unsubscribe();
+        resolve(!failed);
+      };
+      const unsubscribe = this.subscribe(check);
+      check();
+    });
+  }
+
+  /**
    * The AI rewrote `path` and the CV is now `current` (SSE `section_updated`, then a refetch).
    * Unsaved changes inside that part are a real conflict; anything else is re-sent on the new
    * version.

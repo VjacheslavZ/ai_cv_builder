@@ -1,12 +1,10 @@
 'use client';
 
-import { ErrorCode, isRetryableFailure } from '@cv/shared';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { isRetryableFailure, type ErrorCode } from '@cv/shared';
 import { CircleAlertIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { ApiRequestError } from '@/lib/api-fetch';
-import { cvQuery, cvsQuery, retryCv } from '@/lib/queries/cvs';
+import { useRetryCv } from './use-retry-cv';
 
 interface GenerationFailedProps {
   cvId: string;
@@ -27,32 +25,7 @@ const timeFormat = new Intl.DateTimeFormat('en-GB', {
  * Retry: the message tells the user to upload another file or paste text.
  */
 export function GenerationFailed({ cvId, failureCode, message, failedAt }: GenerationFailedProps) {
-  const queryClient = useQueryClient();
-  const refresh = () =>
-    Promise.all([
-      queryClient.invalidateQueries({ queryKey: cvQuery(cvId).queryKey }),
-      queryClient.invalidateQueries({ queryKey: cvsQuery.queryKey, exact: true }),
-    ]);
-  const retry = useMutation({
-    mutationFn: () => retryCv(cvId),
-    // The refetched CV is `generating` again, so the progress stream reconnects.
-    onSuccess: refresh,
-    onError: (error) => {
-      // Already restarted (another tab or device) or deleted: show the current state.
-      if (
-        error instanceof ApiRequestError &&
-        (error.code === ErrorCode.ACTIVE_JOB_EXISTS || error.status === 404)
-      ) {
-        void refresh();
-      }
-    },
-  });
-  const retryError =
-    retry.error instanceof ApiRequestError && retry.error.code !== ErrorCode.ACTIVE_JOB_EXISTS
-      ? retry.error.message
-      : retry.error
-        ? 'Could not retry. Try again.'
-        : null;
+  const { retry, errorText: retryError, busy } = useRetryCv(cvId);
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-4" role="alert">
@@ -71,10 +44,10 @@ export function GenerationFailed({ cvId, failureCode, message, failedAt }: Gener
           <Button
             variant="outline"
             className="h-11 self-start"
-            disabled={retry.isPending || retry.isSuccess}
+            disabled={busy}
             onClick={() => retry.mutate()}
           >
-            {retry.isPending || retry.isSuccess ? 'Retrying…' : 'Retry'}
+            {busy ? 'Retrying…' : 'Retry'}
           </Button>
           {retryError && <p className="text-sm text-destructive">{retryError}</p>}
         </div>

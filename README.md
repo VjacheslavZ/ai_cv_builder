@@ -93,6 +93,13 @@ manual edits are never changed by the AI. Answers on one CV are applied one afte
 most `ANSWERS_PER_HOUR` per user. If the same CV was changed on another device, you see "This CV
 was changed elsewhere" and can re-apply your unsaved changes.
 
+**PDF export and Retry.** "Download PDF" first waits for autosave, then downloads an A4 PDF of
+the saved CV named `<Full_Name>_CV.pdf`, open questions or not: empty fields and sections are
+left out, text is selectable, and long CVs flow onto more pages. It is rendered on the server
+(`@react-pdf/renderer`, Noto Sans embedded) in a worker thread, at most 10 s
+(`PDF_RENDER_TIMEOUT_MS`). A failed generation can be retried from the progress page or the
+dashboard on the saved source, unless the PDF itself was the problem.
+
 ## Monorepo layout
 
 ```

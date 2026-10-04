@@ -3,11 +3,13 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Headers,
   HttpCode,
   HttpStatus,
   Patch,
   Post,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -33,6 +35,7 @@ import { ApiException } from '../common/errors/api.exception.js';
 import { UuidParam } from '../common/http/uuid-param.js';
 import { issuesToFields } from '../common/validation/validation.pipe.js';
 import { CvEditingService } from './cv-editing.service.js';
+import { CvExportService } from './cv-export.service.js';
 import { CvsRepository } from './cvs.repository.js';
 import { CvsService } from './cvs.service.js';
 
@@ -55,6 +58,7 @@ export class CvsController {
     private readonly cvs: CvsRepository,
     private readonly service: CvsService,
     private readonly editing: CvEditingService,
+    private readonly exporter: CvExportService,
   ) {}
 
   @Get()
@@ -104,6 +108,21 @@ export class CvsController {
   @Get(':id')
   get(@CurrentUser() user: AuthUser, @UuidParam('id') id: string): Promise<CvDetailDto> {
     return this.service.get(id, user.id);
+  }
+
+  /**
+   * FR-11: the saved document as an A4 PDF, `attachment` so phones open the native viewer
+   * (AC-11.6). `no-store`: it is personal and must reflect the latest save (AC-11.3).
+   */
+  @Get(':id/pdf')
+  @Header('Cache-Control', 'no-store')
+  async pdf(@CurrentUser() user: AuthUser, @UuidParam('id') id: string): Promise<StreamableFile> {
+    const { bytes, disposition } = await this.exporter.pdf(id, user.id);
+    return new StreamableFile(bytes, {
+      type: 'application/pdf',
+      disposition,
+      length: bytes.length,
+    });
   }
 
   /** AC-5.6: `202 { cvId, jobId }`, a new generation of a failed CV on its saved source. */

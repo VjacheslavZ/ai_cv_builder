@@ -58,6 +58,11 @@ describe('POST /api/cvs/:id/retry', () => {
 
   it('turns a failed CV into a ready draft with a new job', async () => {
     const { cvId, jobId: firstJobId } = await failedCv();
+    // The dashboard knows the failure is retryable.
+    const list = (await apiGet(app, '/api/cvs', user.cookie)).body;
+    expect(list).toEqual([
+      expect.objectContaining({ id: cvId, status: 'failed', failureCode: 'LLM_UNAVAILABLE' }),
+    ]);
 
     const res = await retry(cvId);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
