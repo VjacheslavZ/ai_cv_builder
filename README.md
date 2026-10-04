@@ -1,6 +1,6 @@
 # AI CV Builder
 
-Turns a PDF CV or free text plus a target role into a clean, English, role-targeted CV.
+Turns a PDF CV or free text plus a target role into a clean, role-targeted CV. English only: the input and the CV (no translation, no other languages).
 Every fact in the result is checked against what you provided: anything the AI cannot back up
 with your own words is removed and turned into a clarifying question. You can answer or skip
 questions, edit any field by hand (autosaved), and download an A4 PDF.
@@ -64,8 +64,17 @@ worker crashed (BullMQ stalled detection), and fails anything still running 10 m
 it was created (`JOB_TIMEOUT`). On `SIGTERM` (`docker compose stop`) the worker finishes its
 current job, up to 30 s.
 
-Until Phase 3 the worker uses an offline **fake LLM** (`LLM_PROVIDER=fake`): the "draft" is your
-source lines, so the whole flow works without spending API credits.
+**AI generation and grounding.** The worker asks Claude (`ANTHROPIC_MODEL`, default
+`claude-sonnet-5-5`; `ANTHROPIC_EFFORT`, default `medium`) for an English, role-targeted draft in
+which every fact carries verbatim quotes from your source. A deterministic check then verifies
+each quote, every number, date, email, phone, URL, and name against the source, and every skill
+(its name must be inside its own quote; the model is asked to keep the source's spelling, so
+there is no profession-specific synonym list and it works for any field). Anything it cannot back up is removed and turned into
+a question; the target role is never treated as a fact, and instructions hidden in a PDF are
+ignored. The draft opens with up to 10 questions (contact > experience > education > skills),
+each marked in the CV. `GROUNDING_CHECK_CAPITALIZED=false` relaxes the strictest rule (capitalized
+words in bullets must appear in the source). Tests and the e2e stack use an offline fake
+(`LLM_PROVIDER=fake`); `pnpm eval:llm` runs a small quality set against the real API.
 
 **PDF retention.** The original PDF is not kept: its bytes sit in a temporary Postgres table
 until the worker extracts the text (then they are deleted in the same transaction), and are
