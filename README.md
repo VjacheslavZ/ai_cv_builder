@@ -84,6 +84,15 @@ also deleted after a failed extraction or by the sweeper 24 h after upload at th
 example `summary` or `experience.<id>.bullets.<id>`), not as a `userEdited` flag on every
 field: plain string fields stay plain, and the set moves with the document in every write.
 
+**Editing and answers.** Every field of the draft is editable and autosaves (about 1 s after you
+stop typing, on blur, and when the tab is hidden), showing Saving… / Saved. A question about a
+single value (email, phone, dates, a name's spelling) is written straight into the field; any
+other answer starts a job in which the AI rewrites only that entry or section, with your answer
+as a new source fact. The section says "Updating…" meanwhile, the rest stays editable, and your
+manual edits are never changed by the AI. Answers on one CV are applied one after another, at
+most `ANSWERS_PER_HOUR` per user. If the same CV was changed on another device, you see "This CV
+was changed elsewhere" and can re-apply your unsaved changes.
+
 ## Monorepo layout
 
 ```
