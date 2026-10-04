@@ -5,10 +5,13 @@ import type { AppConfig } from '../config/env.schema.js';
 import { CvEventsHub } from '../events/cv-events.hub.js';
 import { JobsModule } from '../jobs/jobs.module.js';
 import { GenerationLimits } from '../rate-limit/generation-limits.js';
+import { CvEditingService } from './cv-editing.service.js';
 import { CvEventsController } from './cv-events.controller.js';
 import { CvsController } from './cvs.controller.js';
 import { CvsRepository } from './cvs.repository.js';
 import { CvsService } from './cvs.service.js';
+import { QuestionsController } from './questions.controller.js';
+import { QuestionsService } from './questions.service.js';
 
 @Module({
   imports: [
@@ -21,7 +24,14 @@ import { CvsService } from './cvs.service.js';
       }),
     }),
   ],
-  controllers: [CvsController, CvEventsController],
-  providers: [CvsRepository, CvsService, CvEventsHub, GenerationLimits],
+  controllers: [CvsController, CvEventsController, QuestionsController],
+  providers: [
+    CvsRepository,
+    CvsService,
+    CvEditingService,
+    QuestionsService,
+    CvEventsHub,
+    GenerationLimits,
+  ],
 })
 export class CvsModule {}

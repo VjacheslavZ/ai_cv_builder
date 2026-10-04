@@ -10,9 +10,9 @@ import { InjectRedis } from '../redis/redis.module.js';
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
- * NFR-S9, applied to create now and to retry/regenerate later: at most N active generation
- * jobs per user (counted in Postgres, the source of truth) and N generations per hour (a Redis
- * counter). `apply_answer` jobs do not count.
+ * NFR-S9: at most N active generation jobs per user (counted in Postgres, the source of truth)
+ * and N generations per hour (a Redis counter); answers applied by the AI have their own hourly
+ * counter and never count toward the generation limits.
  */
 @Injectable()
 export class GenerationLimits {
@@ -22,8 +22,30 @@ export class GenerationLimits {
   ) {}
 
   /** Counts one generation for this hour; `429` past the limit, `503` if Redis fails (never unlimited). */
-  async consumeHourly(userId: string, now = Date.now()): Promise<void> {
-    const key = `rl:gen:${userId}:${Math.floor(now / HOUR_MS)}`;
+  consumeHourly(userId: string, now = Date.now()): Promise<void> {
+    return this.consume(
+      `rl:gen:${userId}`,
+      this.config.limits.generationsPerHour,
+      'You have started too many generations this hour. Try again later.',
+      now,
+    );
+  }
+
+  /**
+   * Counts one AI-applied answer for this hour (NFR-S9): separate from generations, since
+   * `apply_answer` jobs are serialized per CV rather than limited by active slots.
+   */
+  consumeAnswerHourly(userId: string, now = Date.now()): Promise<void> {
+    return this.consume(
+      `rl:ans:${userId}`,
+      this.config.limits.answersPerHour,
+      'You have sent too many answers this hour. Try again later.',
+      now,
+    );
+  }
+
+  private async consume(prefix: string, limit: number, message: string, now: number) {
+    const key = `${prefix}:${Math.floor(now / HOUR_MS)}`;
     let count: number;
     try {
       const [[incrErr, incremented], [expireErr]] = (await this.redis
@@ -36,12 +58,7 @@ export class GenerationLimits {
     } catch {
       throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, 'Service unavailable');
     }
-    if (count > this.config.limits.generationsPerHour) {
-      throw new ApiException(
-        ErrorCode.RATE_LIMITED,
-        'You have started too many generations this hour. Try again later.',
-      );
-    }
+    if (count > limit) throw new ApiException(ErrorCode.RATE_LIMITED, message);
   }
 
   /**

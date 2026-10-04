@@ -1,5 +1,5 @@
 import { HttpStatus } from '@nestjs/common';
-import { ErrorCode, type ApiError } from '@cv/shared';
+import { ErrorCode, type ApiError, type CvConflictState } from '@cv/shared';
 
 const DEFAULT_STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   [ErrorCode.VALIDATION_ERROR]: HttpStatus.BAD_REQUEST,
@@ -11,6 +11,8 @@ const DEFAULT_STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   [ErrorCode.VERSION_CONFLICT]: HttpStatus.CONFLICT,
   [ErrorCode.ACTIVE_JOB_EXISTS]: HttpStatus.CONFLICT,
   [ErrorCode.CANNOT_RETRY]: HttpStatus.CONFLICT,
+  [ErrorCode.CV_NOT_EDITABLE]: HttpStatus.CONFLICT,
+  [ErrorCode.QUESTION_NOT_OPEN]: HttpStatus.CONFLICT,
   [ErrorCode.RATE_LIMITED]: HttpStatus.TOO_MANY_REQUESTS,
   [ErrorCode.PAYLOAD_TOO_LARGE]: HttpStatus.PAYLOAD_TOO_LARGE,
   [ErrorCode.UNSUPPORTED_MEDIA_TYPE]: HttpStatus.UNSUPPORTED_MEDIA_TYPE,
@@ -26,17 +28,24 @@ export class ApiException extends Error {
   readonly status: HttpStatus;
   readonly fields?: Record<string, string>;
   readonly jobId?: string;
+  readonly current?: CvConflictState;
 
   constructor(
     readonly code: ErrorCode,
     message: string,
-    options: { status?: HttpStatus; fields?: Record<string, string>; jobId?: string } = {},
+    options: {
+      status?: HttpStatus;
+      fields?: Record<string, string>;
+      jobId?: string;
+      current?: CvConflictState;
+    } = {},
   ) {
     super(message);
     this.name = 'ApiException';
     this.status = options.status ?? DEFAULT_STATUS[code] ?? HttpStatus.BAD_REQUEST;
     this.fields = options.fields;
     this.jobId = options.jobId;
+    this.current = options.current;
   }
 
   toBody(): ApiError {
@@ -45,6 +54,7 @@ export class ApiException extends Error {
       message: this.message,
       ...(this.fields ? { fields: this.fields } : {}),
       ...(this.jobId ? { jobId: this.jobId } : {}),
+      ...(this.current ? { current: this.current } : {}),
     };
   }
 }
