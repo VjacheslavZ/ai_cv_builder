@@ -7,6 +7,9 @@ import { PdfExtractor } from '../pdf/pdf-extractor.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { QueueModule } from '../queue/queue.module.js';
 import { RedisModule } from '../redis/redis.module.js';
+import { ApplyAnswerProcessor } from './apply/apply-answer.processor.js';
+import { ApplyState } from './apply/apply-state.js';
+import { CvLock } from './apply/cv-lock.js';
 import { CvWorker } from './cv-worker.js';
 import { GenerateProcessor } from './generate.processor.js';
 import { JobState } from './job-state.js';
@@ -23,6 +26,15 @@ import { Sweeper } from './sweeper.js';
     EventsModule,
     LlmModule,
   ],
-  providers: [JobState, PdfExtractor, GenerateProcessor, CvWorker, Sweeper],
+  providers: [
+    JobState,
+    PdfExtractor,
+    GenerateProcessor,
+    ApplyState,
+    CvLock,
+    ApplyAnswerProcessor,
+    CvWorker,
+    Sweeper,
+  ],
 })
 export class WorkerModule {}

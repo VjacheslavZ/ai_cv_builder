@@ -65,6 +65,11 @@ export const envSchema = z.object({
   WORKER_MAX_STALLED_COUNT: count(1),
   JOB_ATTEMPTS: count(3),
   JOB_BACKOFF_MS: ms(5_000),
+  // AC-9.7: apply_answer jobs on one CV run one at a time under a Redis lock. The TTL bounds a
+  // crashed holder; an expired lock is safe because the commit is fenced by `aiRevision`.
+  CV_LOCK_TTL_MS: ms(300_000),
+  // A job that finds the CV locked goes back to delayed for this long.
+  CV_LOCK_RETRY_MS: ms(2_000),
   // The API answers 202 even when Redis is down; the sweeper enqueues later (AC-3.1, AC-5.7a).
   ENQUEUE_TIMEOUT_MS: ms(500),
   SWEEPER_REQUEUE_AFTER_MS: ms(30_000),
@@ -158,6 +163,8 @@ export function loadConfig(source: NodeJS.ProcessEnv) {
       workerLockMs: env.WORKER_LOCK_DURATION_MS,
       workerStalledIntervalMs: env.WORKER_STALLED_INTERVAL_MS,
       jobBackoffMs: env.JOB_BACKOFF_MS,
+      cvLockTtlMs: env.CV_LOCK_TTL_MS,
+      cvLockRetryMs: env.CV_LOCK_RETRY_MS,
       enqueueMs: env.ENQUEUE_TIMEOUT_MS,
       sweeperRequeueAfterMs: env.SWEEPER_REQUEUE_AFTER_MS,
       pdfRetentionMs: env.PDF_RETENTION_MS,
