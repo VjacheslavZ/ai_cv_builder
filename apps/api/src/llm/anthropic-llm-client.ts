@@ -8,8 +8,14 @@ import {
   type GenerateCvRequest,
   type LlmClient,
   type LlmResponse,
+  type RewriteSectionRequest,
 } from './llm-client.js';
-import { buildUserContent, SYSTEM_PROMPT } from './prompt.js';
+import {
+  buildRewriteContent,
+  buildUserContent,
+  REWRITE_SYSTEM_PROMPT,
+  SYSTEM_PROMPT,
+} from './prompt.js';
 
 export interface AnthropicLlmOptions {
   apiKey: string;
@@ -43,7 +49,26 @@ export class AnthropicLlmClient implements LlmClient {
     });
   }
 
-  async generateCv(request: GenerateCvRequest): Promise<LlmResponse> {
+  generateCv(request: GenerateCvRequest): Promise<LlmResponse> {
+    return this.call('generate', SYSTEM_PROMPT, buildUserContent(request), request.signal);
+  }
+
+  /** One part rewritten after an answer (AC-9.1): same output schema, scoped instructions. */
+  rewriteSection(request: RewriteSectionRequest): Promise<LlmResponse> {
+    return this.call(
+      'rewrite_section',
+      REWRITE_SYSTEM_PROMPT,
+      buildRewriteContent(request),
+      request.signal,
+    );
+  }
+
+  private async call(
+    task: string,
+    system: string,
+    content: string,
+    signal: AbortSignal,
+  ): Promise<LlmResponse> {
     const started = Date.now();
     let response: Anthropic.Beta.BetaMessage;
     try {
@@ -51,13 +76,13 @@ export class AnthropicLlmClient implements LlmClient {
         {
           model: this.options.model,
           max_tokens: this.options.maxTokens,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: buildUserContent(request) }],
+          system,
+          messages: [{ role: 'user', content }],
           output_config: { effort: this.options.effort, format: OUTPUT_FORMAT },
           betas: ['server-side-fallback-2026-07-01'],
           fallbacks: 'default',
         },
-        { signal: request.signal },
+        { signal },
       );
     } catch (error) {
       throw classifyLlmError(error);
@@ -69,6 +94,7 @@ export class AnthropicLlmClient implements LlmClient {
     };
     this.logger.log(
       {
+        task,
         model: response.model,
         stopReason: response.stop_reason,
         durationMs: Date.now() - started,

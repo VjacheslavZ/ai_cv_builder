@@ -1,9 +1,17 @@
-import type { LlmCvOutput } from '@cv/shared';
+import {
+  parseFieldPath,
+  type CvContact,
+  type CvEducation,
+  type CvExperience,
+  type CvSkill,
+  type LlmCvOutput,
+} from '@cv/shared';
 import {
   LlmError,
   type GenerateCvRequest,
   type LlmClient,
   type LlmResponse,
+  type RewriteSectionRequest,
 } from './llm-client.js';
 
 type Step =
@@ -98,6 +106,89 @@ export function fakeLlmOutput(request: Pick<GenerateCvRequest, 'sources'>): LlmC
   };
 }
 
+const empty = (): LlmCvOutput => ({
+  contact: { name: null, email: null, phone: null, city: null, links: [] },
+  summary: '',
+  experience: [],
+  education: [],
+  skills: [],
+  questions: [],
+});
+
+type LlmExperience = LlmCvOutput['experience'][number];
+type LlmEducation = LlmCvOutput['education'][number];
+
+/**
+ * An existing job with its bullets (each quoting itself); with `addAnswer`, the answer becomes a
+ * new bullet.
+ */
+function fakeExperience(entry: CvExperience, answer: string, addAnswer: boolean): LlmExperience {
+  const bullets: LlmExperience['bullets'] = entry.bullets.map((b) => ({
+    id: b.id,
+    text: b.text || 'x',
+    evidence: [b.text || 'x'],
+  }));
+  if (addAnswer && answer) bullets.push({ text: answer, evidence: [answer] });
+  // Empty scalars: the merge keeps the current company, title, and dates.
+  return {
+    id: entry.id,
+    company: '',
+    title: '',
+    start: null,
+    end: null,
+    evidence: [answer || 'x'],
+    bullets,
+  };
+}
+
+function fakeEducation(entry: CvEducation, answer: string): LlmEducation {
+  return {
+    id: entry.id,
+    institution: '',
+    degree: '',
+    start: null,
+    end: null,
+    evidence: [answer || 'x'],
+  };
+}
+
+/**
+ * A grounded rewrite of one part (AC-9.1): existing items come back with their ids (each quoting
+ * itself; if that quote is not in the source, grounding drops it and the server keeps the current
+ * version), and the answer becomes a new bullet of a rewritten entry, or the summary.
+ */
+export function fakeSectionOutput(request: Omit<RewriteSectionRequest, 'signal'>): LlmCvOutput {
+  const answer = request.answer.slice(0, 500);
+  const out = empty();
+  const parts = parseFieldPath(request.scope);
+
+  switch (parts?.section) {
+    case 'summary':
+      out.summary = answer;
+      break;
+    case 'skills':
+      out.skills = (request.section as CvSkill[]).map((k) => ({ ...k, evidence: [k.name] }));
+      break;
+    case 'contact':
+      out.contact.links = (request.section as CvContact).links.map((l) => ({
+        ...l,
+        evidence: [l.url],
+      }));
+      break;
+    case 'experience':
+      out.experience = parts.entryId
+        ? [fakeExperience(request.section as CvExperience, answer, true)]
+        : (request.section as CvExperience[]).map((e) => fakeExperience(e, answer, false));
+      break;
+    case 'education':
+      out.education = parts.entryId
+        ? [fakeEducation(request.section as CvEducation, answer)]
+        : (request.section as CvEducation[]).map((e) => fakeEducation(e, answer));
+      break;
+  }
+  return out;
+}
+
 /**
  * Scripted `LlmClient` for tests, the e2e stack, and Phase 2 (testing.md, "FakeLlmClient
  * scenarios"). Each call consumes the next scripted step; with an empty script every call
@@ -105,6 +196,8 @@ export function fakeLlmOutput(request: Pick<GenerateCvRequest, 'sources'>): LlmC
  */
 export class FakeLlmClient implements LlmClient {
   readonly calls: GenerateCvRequest[] = [];
+  /** `rewriteSection` requests; they consume the same script as `generateCv`. */
+  readonly sectionCalls: RewriteSectionRequest[] = [];
   private readonly script: Step[] = [];
 
   constructor(private readonly options: { delayMs?: number } = {}) {}
@@ -150,19 +243,28 @@ export class FakeLlmClient implements LlmClient {
     return this;
   }
 
-  async generateCv(request: GenerateCvRequest): Promise<LlmResponse> {
+  generateCv(request: GenerateCvRequest): Promise<LlmResponse> {
     this.calls.push(request);
-    await sleep(this.options.delayMs ?? 0, request.signal);
+    return this.next(request.signal, () => fakeLlmOutput(request));
+  }
+
+  rewriteSection(request: RewriteSectionRequest): Promise<LlmResponse> {
+    this.sectionCalls.push(request);
+    return this.next(request.signal, () => fakeSectionOutput(request));
+  }
+
+  private async next(signal: AbortSignal, build: () => LlmCvOutput): Promise<LlmResponse> {
+    await sleep(this.options.delayMs ?? 0, signal);
 
     let step = this.script.shift() ?? { kind: 'valid' };
     while (step.kind === 'slow') {
-      await sleep(step.ms, request.signal);
+      await sleep(step.ms, signal);
       step = this.script.shift() ?? { kind: 'valid' };
     }
 
     switch (step.kind) {
       case 'valid':
-        return { output: step.output ?? fakeLlmOutput(request) };
+        return { output: step.output ?? build() };
       case 'raw':
         return { output: step.output };
       case 'invalid':

@@ -254,6 +254,19 @@ describe('groundCv', () => {
     });
   });
 
+  it('keeps only the ids it was shown, each once (AC-9.3)', () => {
+    const known = '0b6c1f5e-4c1a-4d2b-9a77-1f2e3d4c5b6a';
+    const out = output();
+    out.experience[0]!.id = known;
+    out.experience[0]!.bullets[0]!.id = known; // a duplicate
+    out.skills[0]!.id = 'made-up';
+    const result = groundCv(input(out, { knownIds: new Set([known]) }));
+    expect(result.document.experience[0]!.id).toBe(known);
+    expect(result.document.experience[0]!.bullets[0]!.id).not.toBe(known);
+    expect(result.document.skills[0]!.id).not.toBe('made-up');
+    expect(groundCv(input(output())).document.experience[0]!.id).not.toBe(known);
+  });
+
   it('removes "Worked at Google" from free text when Google is not in the source', () => {
     const out = output();
     out.experience[0]!.bullets[1] = {
