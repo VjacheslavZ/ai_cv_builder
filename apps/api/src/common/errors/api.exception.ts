@@ -10,6 +10,7 @@ const DEFAULT_STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   [ErrorCode.NOT_FOUND]: HttpStatus.NOT_FOUND,
   [ErrorCode.VERSION_CONFLICT]: HttpStatus.CONFLICT,
   [ErrorCode.ACTIVE_JOB_EXISTS]: HttpStatus.CONFLICT,
+  [ErrorCode.CANNOT_RETRY]: HttpStatus.CONFLICT,
   [ErrorCode.RATE_LIMITED]: HttpStatus.TOO_MANY_REQUESTS,
   [ErrorCode.PAYLOAD_TOO_LARGE]: HttpStatus.PAYLOAD_TOO_LARGE,
   [ErrorCode.UNSUPPORTED_MEDIA_TYPE]: HttpStatus.UNSUPPORTED_MEDIA_TYPE,

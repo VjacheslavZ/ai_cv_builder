@@ -13,6 +13,8 @@ export const ErrorCode = {
   NOT_FOUND: 'NOT_FOUND',
   VERSION_CONFLICT: 'VERSION_CONFLICT',
   ACTIVE_JOB_EXISTS: 'ACTIVE_JOB_EXISTS',
+  /** Retry on a CV that is not failed, or whose saved source cannot be generated again (AC-5.6). */
+  CANNOT_RETRY: 'CANNOT_RETRY',
   RATE_LIMITED: 'RATE_LIMITED',
   PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
   UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',

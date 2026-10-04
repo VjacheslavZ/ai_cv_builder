@@ -73,6 +73,23 @@ export function jobErrorMessage(code: ErrorCode): string {
   return JOB_ERROR_MESSAGES[code] ?? JOB_ERROR_MESSAGES[ErrorCode.INTERNAL]!;
 }
 
+/**
+ * Failures a retry on the saved source cannot fix (AC-5.6): the PDF itself is the problem, so
+ * the user needs a new upload or pasted text (the message says so).
+ */
+const SOURCE_FAILURES: readonly ErrorCode[] = [
+  ErrorCode.PDF_NO_TEXT,
+  ErrorCode.PDF_ENCRYPTED,
+  ErrorCode.PDF_CORRUPTED,
+  ErrorCode.PDF_TOO_MANY_PAGES,
+  ErrorCode.PDF_EXPIRED,
+];
+
+/** Whether a failed generation offers "Retry" (`POST /api/cvs/:id/retry`). */
+export function isRetryableFailure(code: ErrorCode | null): boolean {
+  return !code || !SOURCE_FAILURES.includes(code);
+}
+
 // --- SSE: `GET /api/cvs/:id/events` ---
 // Each event is one unnamed SSE message whose `data` is the JSON below; switch on `type`.
 

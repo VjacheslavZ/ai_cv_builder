@@ -5,6 +5,7 @@ import {
   type CvDetailDto,
   type CvSummaryDto,
   type JobStatusDto,
+  type RetryCvResponse,
 } from '@cv/shared';
 import { queryOptions } from '@tanstack/react-query';
 import { apiFetch } from '../api-fetch';
@@ -48,6 +49,11 @@ export function createCv(
     body,
     headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
   });
+}
+
+/** A new generation of a failed CV on its saved source (AC-5.6). */
+export function retryCv(id: string): Promise<RetryCvResponse> {
+  return apiFetch<RetryCvResponse>(`/api/cvs/${id}/retry`, { method: 'POST' });
 }
 
 export function deleteCv(id: string): Promise<void> {

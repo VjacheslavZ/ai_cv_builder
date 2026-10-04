@@ -1,10 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { CreateCvResponse, CvDetailDto, CvProgressDto, JobStatusDto } from '@cv/shared';
+import {
+  ErrorCode,
+  isRetryableFailure,
+  type CreateCvResponse,
+  type CvDetailDto,
+  type CvProgressDto,
+  type JobStatusDto,
+  type RetryCvResponse,
+} from '@cv/shared';
+import { ApiException } from '../common/errors/api.exception.js';
 import { ownedOrNotFound } from '../common/ownership/owned.js';
+import { toErrorCode, toJobStatusDto } from '../jobs/job.mapper.js';
 import { InjectConfig } from '../config/config.module.js';
 import type { AppConfig } from '../config/env.schema.js';
 import { Prisma } from '../generated/prisma/client.js';
-import { toJobStatusDto } from '../jobs/job.mapper.js';
 import { JobsRepository } from '../jobs/jobs.repository.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CvQueueService } from '../queue/cv-queue.service.js';
@@ -91,6 +100,44 @@ export class CvsService {
 
     await this.queue.addAfterCommit('generate', created.jobId);
     this.logger.log({ cvId: created.cvId, jobId: created.jobId }, 'CV created');
+    return created;
+  }
+
+  /**
+   * AC-5.6: a new `generate` job for a `failed` CV on its **saved** source (the extracted text,
+   * the free text, or the PDF upload if it failed before extraction). Same limits as create
+   * (NFR-S9). A PDF failure, or a source that is gone, cannot be retried: `409 CANNOT_RETRY`.
+   */
+  async retry(id: string, userId: string): Promise<RetryCvResponse> {
+    const created = await this.prisma.$transaction(async (tx) => {
+      // The per-user lock first (as in create), then the CV row (as the worker does).
+      await this.limits.assertActiveSlot(tx, userId);
+      const cv = ownedOrNotFound(await this.cvs.lockOwned(tx, id, userId));
+      if (cv.status !== 'failed') {
+        throw new ApiException(ErrorCode.CANNOT_RETRY, 'Only a failed generation can be retried');
+      }
+      const [sources, uploads] = await Promise.all([
+        tx.sourceText.count({ where: { cvId: id } }),
+        tx.pdfUpload.count({ where: { cvId: id } }),
+      ]);
+      if (!isRetryableFailure(toErrorCode(cv.failureCode)) || sources + uploads === 0) {
+        throw new ApiException(
+          ErrorCode.CANNOT_RETRY,
+          'This CV cannot be generated again from its saved source. Create a new CV with your PDF or text.',
+        );
+      }
+      await this.limits.consumeHourly(userId);
+      const job = await this.jobs.createGenerateJob(tx, {
+        cvId: id,
+        userId,
+        deadlineAt: new Date(Date.now() + this.config.timeouts.jobDeadlineMs),
+      });
+      await tx.cv.update({ where: { id }, data: { status: 'generating', failureCode: null } });
+      return { cvId: id, jobId: job.id };
+    });
+
+    await this.queue.addAfterCommit('generate', created.jobId);
+    this.logger.log(created, 'CV generation retried');
     return created;
   }
 
