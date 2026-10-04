@@ -3,19 +3,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
-import { CvDraftPreview } from '@/components/cv/cv-draft-preview';
 import { CvWarnings } from '@/components/cv/cv-notices';
+import { CvEditor } from '@/components/cv/editor/cv-editor';
 import { CvPageShell } from '@/components/cv/cv-page-shell';
 import { CvStatusBadge } from '@/components/cv/cv-status-badge';
 import { GenerationFailed } from '@/components/cv/generation-failed';
 import { GenerationStages } from '@/components/cv/generation-stages';
-import { QuestionsList } from '@/components/cv/questions-list';
 import { ApiRequestError } from '@/lib/api-fetch';
-import { questionMarks } from '@/lib/question-marks';
 import { cvQuery, cvsQuery } from '@/lib/queries/cvs';
 import { useCvProgress } from '@/lib/use-cv-progress';
 
-/** `/cvs/:id`: live stages while generating (AC-5.1), then the draft. */
+/** `/cvs/:id`: live stages while generating (AC-5.1), then the editor (FR-10). */
 export function CvProgressView({ cvId }: { cvId: string }) {
   const queryClient = useQueryClient();
   const { data: detail, error } = useQuery(cvQuery(cvId));
@@ -57,12 +55,7 @@ export function CvProgressView({ cvId }: { cvId: string }) {
         />
       )}
       {status === 'ready' && detail.document && (
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
-          <CvDraftPreview document={detail.document} marks={questionMarks(detail.questions)} />
-          <div className="lg:sticky lg:top-4">
-            <QuestionsList questions={detail.questions} />
-          </div>
-        </div>
+        <CvEditor detail={{ ...detail, document: detail.document }} />
       )}
     </CvPageShell>
   );

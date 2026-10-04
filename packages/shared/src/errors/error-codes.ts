@@ -15,6 +15,10 @@ export const ErrorCode = {
   ACTIVE_JOB_EXISTS: 'ACTIVE_JOB_EXISTS',
   /** Retry on a CV that is not failed, or whose saved source cannot be generated again (AC-5.6). */
   CANNOT_RETRY: 'CANNOT_RETRY',
+  /** The CV has no draft to edit yet (still generating, or the generation failed). */
+  CV_NOT_EDITABLE: 'CV_NOT_EDITABLE',
+  /** Answer or skip on a question that is not `open` or `failed` (AC-8.6). */
+  QUESTION_NOT_OPEN: 'QUESTION_NOT_OPEN',
   RATE_LIMITED: 'RATE_LIMITED',
   PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
   UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',

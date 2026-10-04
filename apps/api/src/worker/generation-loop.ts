@@ -9,6 +9,10 @@ export interface GenerationLoopInput {
   /** How many invalid answers are re-requested before the job fails (AC-6.6). */
   invalidOutputRetries: number;
   checkCapitalizedTokens: boolean;
+  /** Ids of existing items the model was shown (a section rewrite keeps them, AC-9.3). */
+  knownIds?: ReadonlySet<string>;
+  /** Narrows a schema-valid answer before grounding, e.g. to the rewritten section only. */
+  prepare?(output: LlmCvOutput): LlmCvOutput;
   /** One LLM call; returns the untrusted answer. */
   call(request: Omit<GenerateCvRequest, 'signal'>): Promise<unknown>;
   /** An answer failed the schema; `issues` is a count, never the content. */
@@ -56,12 +60,14 @@ export async function runGenerationLoop(input: GenerationLoopInput): Promise<Gen
     }
 
     // 2. Grounding (FR-7): unsupported facts are removed and turned into questions.
+    const output = input.prepare ? input.prepare(parsed.data) : parsed.data;
     const result = groundCv({
-      output: parsed.data,
+      output,
       sources: sources.map((s) => s.text),
       targetRole,
       checkCapitalizedTokens: input.checkCapitalizedTokens,
       dropSummaryOnRoleClaim: roleRetried,
+      knownIds: input.knownIds,
     });
     // AC-7.7: a summary claiming the target role gets one re-request, then it is dropped.
     if (result.summaryRoleClaim && !roleRetried) {
@@ -70,6 +76,6 @@ export async function runGenerationLoop(input: GenerationLoopInput): Promise<Gen
         'The summary claims the target role, which the sources do not support. Rewrite the summary without stating or implying that the person holds the target role.';
       continue;
     }
-    return { result, output: parsed.data, calls, invalidAnswers, roleRetried };
+    return { result, output, calls, invalidAnswers, roleRetried };
   }
 }

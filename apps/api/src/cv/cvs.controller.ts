@@ -6,6 +6,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   UploadedFile,
   UseInterceptors,
@@ -17,17 +18,21 @@ import {
   ErrorCode,
   IDEMPOTENCY_KEY_HEADER,
   idempotencyKeySchema,
+  patchCvSchema,
   PDF_MIME_TYPES,
   type AuthUser,
   type CreateCvResponse,
   type CvDetailDto,
   type CvSummaryDto,
+  type PatchCvInput,
+  type PatchCvResponse,
   type RetryCvResponse,
 } from '@cv/shared';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { ApiException } from '../common/errors/api.exception.js';
 import { UuidParam } from '../common/http/uuid-param.js';
 import { issuesToFields } from '../common/validation/validation.pipe.js';
+import { CvEditingService } from './cv-editing.service.js';
 import { CvsRepository } from './cvs.repository.js';
 import { CvsService } from './cvs.service.js';
 
@@ -49,6 +54,7 @@ export class CvsController {
   constructor(
     private readonly cvs: CvsRepository,
     private readonly service: CvsService,
+    private readonly editing: CvEditingService,
   ) {}
 
   @Get()
@@ -105,6 +111,16 @@ export class CvsController {
   @HttpCode(HttpStatus.ACCEPTED)
   retry(@CurrentUser() user: AuthUser, @UuidParam('id') id: string): Promise<RetryCvResponse> {
     return this.service.retry(id, user.id);
+  }
+
+  /** Autosave (AC-10.1): `{ baseVersion, ops }` → `{ version }`; `409` with `current` when stale. */
+  @Patch(':id')
+  patch(
+    @CurrentUser() user: AuthUser,
+    @UuidParam('id') id: string,
+    @Body({ schema: patchCvSchema }) body: PatchCvInput,
+  ): Promise<PatchCvResponse> {
+    return this.editing.patch(id, user.id, body);
   }
 
   @Delete(':id')

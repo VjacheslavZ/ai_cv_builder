@@ -146,7 +146,7 @@ export class JobState {
   }
 
   /**
-   * Fails an active job and, for a generation, its CV. Idempotent: returns `false` if the job
+   * Fails an active job and, for a generation, its CV; for an answer, its question. Idempotent: returns `false` if the job
    * was already finished or is gone. `deleteUpload` drops the temporary PDF as well (a
    * permanent extraction failure, SPEC §1).
    */
@@ -157,7 +157,7 @@ export class JobState {
   ): Promise<boolean> {
     const job = await this.prisma.job.findUnique({
       where: { id: jobId },
-      select: { cvId: true, type: true },
+      select: { cvId: true, type: true, questionId: true },
     });
     if (!job) return false;
     const message = jobErrorMessage(code);
@@ -178,12 +178,24 @@ export class JobState {
           data: { status: 'failed', failureCode: code },
         });
       }
+      // AC-9.5: an answer that could not be applied leaves the CV as it was; the answer stays.
+      if (job.type === 'apply_answer' && job.questionId) {
+        await tx.question.updateMany({
+          where: { id: job.questionId, status: 'applying' },
+          data: { status: 'failed' },
+        });
+      }
       return true;
     });
 
     if (failed) {
       this.logger.warn({ jobId, cvId: job.cvId, code }, 'Job failed');
-      await this.events.publish(job.cvId, { type: 'failed', jobId, code, message });
+      await this.events.publish(
+        job.cvId,
+        job.type === 'apply_answer' && job.questionId
+          ? { type: 'question_failed', jobId, questionId: job.questionId }
+          : { type: 'failed', jobId, code, message },
+      );
     }
     return failed;
   }

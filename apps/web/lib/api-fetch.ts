@@ -1,10 +1,12 @@
-import { apiErrorSchema, ErrorCode, type ApiError } from '@cv/shared';
+import { apiErrorSchema, ErrorCode, type ApiError, type CvConflictState } from '@cv/shared';
 
 /** A failed API call, carrying the server's `{ code, message, fields? }`. */
 export class ApiRequestError extends Error {
   readonly status: number;
   readonly code: ErrorCode;
   readonly fields?: Record<string, string>;
+  /** The CV as the server has it now, with `409 VERSION_CONFLICT`. */
+  readonly current?: CvConflictState;
 
   constructor(status: number, error: ApiError) {
     super(error.message);
@@ -12,6 +14,7 @@ export class ApiRequestError extends Error {
     this.status = status;
     this.code = error.code;
     this.fields = error.fields;
+    this.current = error.current;
   }
 }
 

@@ -1,21 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ErrorCode } from '@cv/shared';
-import { UnrecoverableError } from 'bullmq';
 import { InjectConfig } from '../config/config.module.js';
 import type { GroundingResult } from '../grounding/ground-cv.js';
 import type { AppConfig } from '../config/env.schema.js';
-import {
-  InjectLlmClient,
-  LlmError,
-  type GenerateCvRequest,
-  type LlmClient,
-} from '../llm/llm-client.js';
+import { InjectLlmClient, type GenerateCvRequest, type LlmClient } from '../llm/llm-client.js';
 import { countMeaningfulChars, PdfExtractor } from '../pdf/pdf-extractor.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CvBullJob } from '../queue/cv-queue.service.js';
 import { runGenerationLoop } from './generation-loop.js';
-import { JobStopped, PermanentJobError } from './job-errors.js';
+import { PermanentJobError } from './job-errors.js';
 import { JobState, type ActiveJob } from './job-state.js';
+import { callWithinDeadline, runJob } from './run-job.js';
 
 /**
  * The `generate` pipeline: `extracting → generating → validating → completed`. Every LLM
@@ -37,46 +32,19 @@ export class GenerateProcessor {
     @InjectConfig() private readonly config: AppConfig,
   ) {}
 
-  async process(bullJob: CvBullJob): Promise<void> {
-    const jobId = bullJob.data.jobId;
-    const attempt = bullJob.attemptsMade + 1;
-    const startedAt = Date.now();
-
-    const job = await this.state.start(jobId, attempt);
-    if (!job) {
-      this.logger.log({ jobId }, 'Job is no longer active; skipped');
-      return;
-    }
-
-    try {
-      if (job.deadlineAt.getTime() <= Date.now())
-        throw new PermanentJobError(ErrorCode.JOB_TIMEOUT);
-      await this.extract(job);
-      const result = await this.generate(job);
-      await this.state.complete(job, result);
-      this.logger.log(
-        { jobId, cvId: job.cvId, attempt, durationMs: Date.now() - startedAt },
-        'Job completed',
-      );
-    } catch (err) {
-      if (err instanceof JobStopped) {
-        this.logger.log({ jobId, stage: job.stage }, 'Job stopped: no longer active or CV deleted');
-        return;
-      }
-      if (err instanceof PermanentJobError) {
-        await this.state.fail(jobId, err.code, { deleteUpload: err.code.startsWith('PDF_') });
-        throw new UnrecoverableError(err.code);
-      }
-      const code = err instanceof LlmError ? ErrorCode.LLM_UNAVAILABLE : ErrorCode.INTERNAL;
-      const attempts = bullJob.opts.attempts ?? 1;
-      this.logger.warn(
-        { jobId, stage: job.stage, attempt, attempts, err: (err as Error).name },
-        'Job attempt failed',
-      );
-      // The last attempt: BullMQ will not retry, so the DB job fails now.
-      if (attempt >= attempts) await this.state.fail(jobId, code);
-      throw err;
-    }
+  process(bullJob: CvBullJob): Promise<void> {
+    return runJob(
+      bullJob,
+      {
+        state: this.state,
+        logger: this.logger,
+        failOptions: (code) => ({ deleteUpload: code.startsWith('PDF_') }),
+      },
+      async (job) => {
+        await this.extract(job);
+        await this.state.complete(job, await this.generate(job));
+      },
+    );
   }
 
   /** `extracting`: PDF → text in a worker thread; the upload is deleted in every terminal case. */
@@ -138,29 +106,17 @@ export class GenerateProcessor {
     return result;
   }
 
-  /** One LLM call within the job's time budget; permanent LLM errors fail the job (AC-5.6). */
   private async callLlm(
     job: ActiveJob,
     request: Omit<GenerateCvRequest, 'signal'>,
   ): Promise<unknown> {
-    // NFR-R3: retry layers multiply, so every call must fit before the job's deadline.
-    const callMs = this.config.timeouts.llmMs;
-    if (job.deadlineAt.getTime() - Date.now() < callMs) {
-      throw new PermanentJobError(ErrorCode.JOB_TIMEOUT);
-    }
-    const signal = AbortSignal.timeout(callMs);
-    try {
-      const response = await this.llm.generateCv({ ...request, signal });
-      return response.output;
-    } catch (err) {
-      if (err instanceof LlmError && !err.retryable) {
-        throw new PermanentJobError(ErrorCode.LLM_UNAVAILABLE);
-      }
-      throw err;
-    } finally {
-      // The LLM call took a while: stop here if the CV was deleted meanwhile (AC-5.9).
-      await this.state.assertActive(job.id);
-    }
+    const response = await callWithinDeadline(
+      job,
+      this.state,
+      this.config.timeouts.llmMs,
+      (signal) => this.llm.generateCv({ ...request, signal }),
+    );
+    return response.output;
   }
 }
 

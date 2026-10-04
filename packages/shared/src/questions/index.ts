@@ -46,3 +46,5 @@ export function questionPriority(path: string, type: QuestionType): number {
   const section = path.split('.')[0] ?? '';
   return (SECTION_RANK[section] ?? 9) * 10 + TYPE_RANK[type];
 }
+
+export * from './answer.js';

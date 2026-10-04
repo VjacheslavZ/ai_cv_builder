@@ -10,6 +10,7 @@ import { InjectConfig } from '../config/config.module.js';
 import type { AppConfig } from '../config/env.schema.js';
 import { CV_QUEUE_NAME, type CvBullJob, type CvJobPayload } from '../queue/cv-queue.service.js';
 import { RedisConnectionFactory } from '../redis/redis.connection-factory.js';
+import { ApplyAnswerProcessor } from './apply/apply-answer.processor.js';
 import { GenerateProcessor } from './generate.processor.js';
 import { JobState } from './job-state.js';
 
@@ -27,6 +28,7 @@ export class CvWorker implements OnApplicationBootstrap, BeforeApplicationShutdo
     @InjectConfig() private readonly config: AppConfig,
     private readonly connections: RedisConnectionFactory,
     private readonly generate: GenerateProcessor,
+    private readonly applyAnswer: ApplyAnswerProcessor,
     private readonly state: JobState,
   ) {}
 
@@ -34,7 +36,7 @@ export class CvWorker implements OnApplicationBootstrap, BeforeApplicationShutdo
     const { timeouts, limits, queue } = this.config;
     const worker = new Worker<CvJobPayload, void, JobType>(
       CV_QUEUE_NAME,
-      (job) => this.dispatch(job),
+      (job, token) => this.dispatch(job, token),
       {
         connection: this.connections.create('bullmq', 'worker'),
         prefix: queue.prefix,
@@ -54,10 +56,13 @@ export class CvWorker implements OnApplicationBootstrap, BeforeApplicationShutdo
     this.worker = worker;
   }
 
-  private dispatch(job: CvBullJob): Promise<void> {
+  private dispatch(job: CvBullJob, token: string | undefined): Promise<void> {
     switch (job.name) {
       case 'generate':
         return this.generate.process(job);
+      case 'apply_answer':
+        if (!token) throw new UnrecoverableError('apply_answer needs a job token');
+        return this.applyAnswer.process(job, token);
       default:
         throw new UnrecoverableError(`Unsupported job type: ${job.name}`);
     }

@@ -42,6 +42,11 @@ export interface GroundingInput {
   checkCapitalizedTokens: boolean;
   /** After the one re-request (AC-7.7): drop a summary that claims the role and ask instead. */
   dropSummaryOnRoleClaim?: boolean;
+  /**
+   * Ids of the existing items the model was shown (an `apply_answer` rewrite, AC-9.3). An item
+   * keeps its id only if it is one of these; anything else gets a fresh UUID.
+   */
+  knownIds?: ReadonlySet<string>;
 }
 
 export interface GroundingResult {
@@ -76,6 +81,13 @@ export function groundCv(input: GroundingInput): GroundingResult {
   const source = groundingSource(input.sources);
   const removed: Removal[] = [];
   const questions: DraftQuestion[] = [];
+  const usedIds = new Set<string>();
+  const idFor = (candidate: string | undefined): string => {
+    const keep = !!candidate && !!input.knownIds?.has(candidate) && !usedIds.has(candidate);
+    const id = keep ? candidate : randomUUID();
+    usedIds.add(id);
+    return id;
+  };
 
   const check = (c: Check): RemovalReason | null => {
     if (!c.evidence.every((quote) => quoteInSource(quote, source))) return 'QUOTE_NOT_FOUND';
@@ -127,7 +139,11 @@ export function groundCv(input: GroundingInput): GroundingResult {
       : 'INVALID_VALUE';
     if (reason) remove('contact.links', reason);
     else
-      doc.contact.links.push({ id: randomUUID(), label: link.label.trim(), url: link.url.trim() });
+      doc.contact.links.push({
+        id: idFor(link.id),
+        label: link.label.trim(),
+        url: link.url.trim(),
+      });
   }
 
   // Experience: an entry stands or falls with its company, title, and dates; bullets one by one.
@@ -140,7 +156,7 @@ export function groundCv(input: GroundingInput): GroundingResult {
       roleText: [entry.title],
     });
     if (reason) return remove('experience', reason);
-    const id = randomUUID();
+    const id = idFor(entry.id);
     experienceIds.set(index, id);
     const bullets = entry.bullets.filter((bullet) => {
       const bulletReason = check({
@@ -156,7 +172,7 @@ export function groundCv(input: GroundingInput): GroundingResult {
       company: entry.company.trim(),
       title: entry.title.trim(),
       dates: dateRange(entry.start, entry.end),
-      bullets: bullets.map((b) => ({ id: randomUUID(), text: b.text.trim() })),
+      bullets: bullets.map((b) => ({ id: idFor(b.id), text: b.text.trim() })),
     });
   });
 
@@ -169,7 +185,7 @@ export function groundCv(input: GroundingInput): GroundingResult {
       freeText: [entry.degree],
     });
     if (reason) return remove('education', reason);
-    const id = randomUUID();
+    const id = idFor(entry.id);
     educationIds.set(index, id);
     doc.education.push({
       id,
@@ -190,7 +206,7 @@ export function groundCv(input: GroundingInput): GroundingResult {
     if (reason) remove('skills', reason);
     else {
       seenSkills.add(key);
-      doc.skills.push({ id: randomUUID(), name: skill.name.trim() });
+      doc.skills.push({ id: idFor(skill.id), name: skill.name.trim() });
     }
   }
 
