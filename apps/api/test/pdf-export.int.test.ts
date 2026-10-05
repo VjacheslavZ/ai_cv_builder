@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { TestingModule } from '@nestjs/testing';
 import type { CvDocument } from '@cv/shared';
-import { extractText, getDocumentProxy } from 'unpdf';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { FakeLlmClient } from '../src/llm/fake-llm-client.js';
@@ -11,41 +10,11 @@ import { createTestApp, uniqueQueuePrefix } from './support/app.js';
 import { signUp } from './support/auth.js';
 import { createCv, waitForJob } from './support/cvs.js';
 import { createTestDatabase, type TestDatabase } from './support/database.js';
+import { getPdf, parsePdf } from './support/pdf.js';
 import { patchCv, readyCv, type ReadyCv } from './support/ready-cv.js';
 import { startTestWorker } from './support/worker.js';
 
 // FR-11: the PDF export, rendered from the saved document.
-
-/** The PDF as bytes (supertest buffers only text bodies by default). */
-function getPdf(app: NestExpressApplication, cvId: string, cookie: string) {
-  return request(app.getHttpServer())
-    .get(`/api/cvs/${cvId}/pdf`)
-    .set('Cookie', cookie)
-    .buffer(true)
-    .parse((res, done) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (chunk: Buffer) => chunks.push(chunk));
-      res.on('end', () => done(null, Buffer.concat(chunks)));
-    });
-}
-
-interface ParsedPdf {
-  pages: { width: number; height: number; text: string }[];
-  text: string;
-}
-
-async function parsePdf(bytes: Buffer): Promise<ParsedPdf> {
-  const pdf = await getDocumentProxy(new Uint8Array(bytes), { verbosity: 0 });
-  const { text } = await extractText(pdf, { mergePages: false });
-  const pages = await Promise.all(
-    text.map(async (pageText, i) => {
-      const { width, height } = (await pdf.getPage(i + 1)).getViewport({ scale: 1 });
-      return { width, height, text: pageText };
-    }),
-  );
-  await pdf.loadingTask.destroy();
-  return { pages, text: text.join('\n') };
-}
 
 /** `needles` appear in `text` in this order. */
 function expectInOrder(text: string, needles: string[]) {

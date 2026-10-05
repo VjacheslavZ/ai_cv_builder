@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Module } from '@nestjs/common';
-import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
+import { LoggerModule as PinoLoggerModule, type Params } from 'nestjs-pino';
+import type { DestinationStream } from 'pino';
 import { APP_CONFIG } from '../config/config.module.js';
 import type { AppConfig } from '../config/env.schema.js';
 
@@ -31,30 +32,34 @@ export function requestIdFor(req: IncomingMessage, res: ServerResponse): string 
 
 const PROBES = new Set(['/health', '/ready']);
 
+/** The pino options of the API and the worker. Tests pass a `destination` to capture lines. */
+export function loggerParams(config: AppConfig, destination?: DestinationStream): Params {
+  const options = {
+    level: config.logLevel,
+    genReqId: requestIdFor,
+    // Every log line inside a request carries `requestId` (not the whole request).
+    quietReqLogger: true,
+    customAttributeKeys: { reqId: 'requestId' },
+    redact: { paths: REDACT_PATHS, censor: '[redacted]' },
+    autoLogging: { ignore: (req: IncomingMessage) => PROBES.has(req.url ?? '') },
+    // Method and path only: query strings and headers are not needed and may carry PII.
+    serializers: {
+      req: (req: { id: string; method: string; url: string }) => ({
+        id: req.id,
+        method: req.method,
+        path: req.url.split('?')[0],
+      }),
+      res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
+    },
+  };
+  return { pinoHttp: destination ? [options, destination] : options };
+}
+
 @Module({
   imports: [
     PinoLoggerModule.forRootAsync({
       inject: [APP_CONFIG],
-      useFactory: (config: AppConfig) => ({
-        pinoHttp: {
-          level: config.logLevel,
-          genReqId: requestIdFor,
-          // Every log line inside a request carries `requestId` (not the whole request).
-          quietReqLogger: true,
-          customAttributeKeys: { reqId: 'requestId' },
-          redact: { paths: REDACT_PATHS, censor: '[redacted]' },
-          autoLogging: { ignore: (req) => PROBES.has(req.url ?? '') },
-          // Method and path only: query strings and headers are not needed and may carry PII.
-          serializers: {
-            req: (req: { id: string; method: string; url: string }) => ({
-              id: req.id,
-              method: req.method,
-              path: req.url.split('?')[0],
-            }),
-            res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
-          },
-        },
-      }),
+      useFactory: (config: AppConfig) => loggerParams(config),
     }),
   ],
 })

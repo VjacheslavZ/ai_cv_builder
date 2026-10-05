@@ -1,7 +1,6 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { AuthUser } from '@cv/shared';
-import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import { Redis } from 'ioredis';
 import pg from 'pg';
 import request from 'supertest';
@@ -22,8 +21,8 @@ import {
   sessionToken,
   signUp,
 } from './support/auth.js';
+import { startOwnRedis, type OwnRedis } from './support/own-redis.js';
 import { createTestDatabase, type TestDatabase } from './support/database.js';
-import { REDIS_COMMAND } from './support/global-setup.js';
 
 const createThingSchema = z.object({ title: z.string().min(1) });
 
@@ -327,18 +326,18 @@ describe('auth', () => {
 
 describe('auth when Redis is down (NFR-R12)', () => {
   let db: TestDatabase;
-  let redis: StartedRedisContainer | undefined;
+  let redis: OwnRedis | undefined;
   let app: NestExpressApplication;
 
   beforeAll(async () => {
     db = await createTestDatabase();
-    redis = await new RedisContainer('redis:7').withCommand(REDIS_COMMAND).start();
-    app = await createTestApp({ databaseUrl: db.url, redisUrl: redis.getConnectionUrl() });
+    redis = await startOwnRedis();
+    app = await createTestApp({ databaseUrl: db.url, redisUrl: redis.url });
   });
 
   afterAll(async () => {
     await app?.close();
-    await redis?.stop();
+    await redis?.close();
     await db?.drop();
   });
 
@@ -346,8 +345,7 @@ describe('auth when Redis is down (NFR-R12)', () => {
     const { cookie } = await signUp(app);
     await request(app.getHttpServer()).get('/api/cvs').set('Cookie', cookie).expect(200);
 
-    await redis!.stop();
-    redis = undefined;
+    redis!.stop();
 
     const res = await request(app.getHttpServer()).get('/api/cvs').set('Cookie', cookie);
     expect(res.status).toBe(503);

@@ -1,4 +1,3 @@
-import type { AddressInfo } from 'node:net';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { TestingModule } from '@nestjs/testing';
 import type { CvDocument, CvEvent } from '@cv/shared';
@@ -9,7 +8,7 @@ import { PrismaService } from '../src/prisma/prisma.service.js';
 import { CvQueueService } from '../src/queue/cv-queue.service.js';
 import { GenerateProcessor } from '../src/worker/generate.processor.js';
 import { Sweeper } from '../src/worker/sweeper.js';
-import { createTestApp, TEST_ORIGIN, uniqueQueuePrefix } from './support/app.js';
+import { baseUrl, createTestApp, TEST_ORIGIN, uniqueQueuePrefix } from './support/app.js';
 import { signUp } from './support/auth.js';
 import { apiGet, createCv, waitFor, waitForJob } from './support/cvs.js';
 import { createTestDatabase, type TestDatabase } from './support/database.js';
@@ -37,7 +36,6 @@ describe('generate pipeline (fake LLM)', () => {
   let llm: FakeLlmClient;
   let prisma: PrismaService;
   let user: { cookie: string; userId: string };
-  let baseUrl: string;
 
   beforeAll(async () => {
     db = await createTestDatabase();
@@ -47,8 +45,6 @@ describe('generate pipeline (fake LLM)', () => {
       ...SHORT_TIMEOUTS,
     };
     app = await createTestApp({ databaseUrl: db.url, env });
-    await app.listen(0, '127.0.0.1');
-    baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
     llm = new FakeLlmClient();
     worker = await startTestWorker({ databaseUrl: db.url, env, llm });
     prisma = app.get(PrismaService);
@@ -348,7 +344,7 @@ describe('generate pipeline (fake LLM)', () => {
     it('sends a snapshot first, then live stages and completion', async () => {
       llm.slow(500);
       const { cvId, jobId } = await createCv(app, { cookie: user.cookie, text: SAMPLE_TEXT });
-      const stream = await openSse(`${baseUrl}/api/cvs/${cvId}/events`, user.cookie);
+      const stream = await openSse(`${baseUrl(app)}/api/cvs/${cvId}/events`, user.cookie);
       try {
         expect(stream.status).toBe(200);
         expect(stream.contentType).toMatch(/^text\/event-stream/);
@@ -376,7 +372,7 @@ describe('generate pipeline (fake LLM)', () => {
       const { cvId, jobId } = await createCv(app, { cookie: user.cookie, text: SAMPLE_TEXT });
       await waitForJob(prisma, jobId, ['completed']);
       // E.g. a second device, or the phone coming back from the background.
-      const stream = await openSse(`${baseUrl}/api/cvs/${cvId}/events`, user.cookie);
+      const stream = await openSse(`${baseUrl(app)}/api/cvs/${cvId}/events`, user.cookie);
       try {
         const first = (await stream.next()) as Extract<CvEvent, { type: 'snapshot' }>;
         expect(first).toMatchObject({
@@ -392,7 +388,7 @@ describe('generate pipeline (fake LLM)', () => {
     it('sends heartbeats and hides other users’ streams', async () => {
       const { cvId } = await createCv(app, { cookie: user.cookie, text: SAMPLE_TEXT });
       const other = await signUp(app);
-      const foreign = await openSse(`${baseUrl}/api/cvs/${cvId}/events`, other.cookie);
+      const foreign = await openSse(`${baseUrl(app)}/api/cvs/${cvId}/events`, other.cookie);
       expect(foreign.status).toBe(404);
       foreign.close();
     });
@@ -450,7 +446,6 @@ describe('heartbeat', () => {
       databaseUrl: db.url,
       env: { BULLMQ_PREFIX: uniqueQueuePrefix(), SSE_HEARTBEAT_MS: '100' },
     });
-    await app.listen(0, '127.0.0.1');
   });
 
   afterAll(async () => {
@@ -461,8 +456,7 @@ describe('heartbeat', () => {
   it('keeps an idle stream alive with heartbeat events', async () => {
     const { cookie } = await signUp(app);
     const { cvId } = await createCv(app, { cookie, text: SAMPLE_TEXT });
-    const port = (app.getHttpServer().address() as AddressInfo).port;
-    const stream = await openSse(`http://127.0.0.1:${port}/api/cvs/${cvId}/events`, cookie);
+    const stream = await openSse(`${baseUrl(app)}/api/cvs/${cvId}/events`, cookie);
     try {
       expect((await stream.next()).type).toBe('snapshot');
       expect(await stream.next(1_000)).toEqual({ type: 'heartbeat' });
