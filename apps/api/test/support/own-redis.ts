@@ -3,6 +3,9 @@ import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redi
 import { REDIS_COMMAND } from './global-setup.js';
 import { startTcpProxy, type TcpProxy } from './tcp-proxy.js';
 
+/** How long `docker port` may take to report the mapping after a start. */
+const PORT_WAIT_MS = 10_000;
+
 const docker = (...args: string[]) =>
   execFileSync('docker', args, { stdio: 'pipe' }).toString('utf8');
 
@@ -27,10 +30,19 @@ export interface OwnRedis {
 
 export async function startOwnRedis(): Promise<OwnRedis> {
   const container = await new RedisContainer('redis:7').withCommand(REDIS_COMMAND).start();
-  // Docker may map another host port after a start; ask it each time.
+  // Docker may map another host port after a start; ask it each time. Right after `docker start`
+  // Docker Desktop may not have published the port yet ("no public port"): wait for it.
   const mappedPort = () => {
-    const line = docker('port', container.getId(), '6379/tcp').split('\n')[0]!;
-    return Number(line.slice(line.lastIndexOf(':') + 1));
+    const deadline = Date.now() + PORT_WAIT_MS;
+    for (;;) {
+      try {
+        const line = docker('port', container.getId(), '6379/tcp').split('\n')[0]!;
+        return Number(line.slice(line.lastIndexOf(':') + 1));
+      } catch (err) {
+        if (Date.now() > deadline) throw err;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+      }
+    }
   };
   const proxy: TcpProxy = await startTcpProxy(mappedPort());
 

@@ -174,8 +174,6 @@ export class Judge {
     const response = await this.client.messages.parse({
       model: this.model,
       max_tokens: 8_000,
-      // No thinking: the reason field comes first, and temperature 0 keeps verdicts stable.
-      temperature: 0,
       system,
       messages: [{ role: 'user', content }],
       output_config: { format: zodOutputFormat(schema) },
