@@ -7,6 +7,7 @@ import { InjectLlmClient, type GenerateCvRequest, type LlmClient } from '../llm/
 import { countMeaningfulChars, PdfExtractor } from '../pdf/pdf-extractor.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CvBullJob } from '../queue/cv-queue.service.js';
+import { withAccountContact } from './account-contact.js';
 import { runGenerationLoop } from './generation-loop.js';
 import { PermanentJobError } from './job-errors.js';
 import { JobState, type ActiveJob } from './job-state.js';
@@ -103,7 +104,12 @@ export class GenerateProcessor {
       },
       'Grounding finished',
     );
-    return result;
+    // The name and email from sign-up stand in for what the sources do not give.
+    const account = await this.prisma.user.findUnique({
+      where: { id: job.cv.userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    return account ? withAccountContact(result, account) : result;
   }
 
   private async callLlm(
