@@ -22,16 +22,20 @@ import {
   idempotencyKeySchema,
   patchCvSchema,
   PDF_MIME_TYPES,
+  renameCvSchema,
   type AuthUser,
   type CreateCvResponse,
   type CvDetailDto,
   type CvSummaryDto,
   type PatchCvInput,
   type PatchCvResponse,
+  type RenameCvInput,
+  type RenameCvResponse,
   type RetryCvResponse,
 } from '@cv/shared';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { ApiException } from '../common/errors/api.exception.js';
+import { ownedOrNotFound } from '../common/ownership/owned.js';
 import { UuidParam } from '../common/http/uuid-param.js';
 import { issuesToFields } from '../common/validation/validation.pipe.js';
 import { CvEditingService } from './cv-editing.service.js';
@@ -140,6 +144,16 @@ export class CvsController {
     @Body({ schema: patchCvSchema }) body: PatchCvInput,
   ): Promise<PatchCvResponse> {
     return this.editing.patch(id, user.id, body);
+  }
+
+  /** AC-12.4: `{ title }` (1–100 characters) → `{ title, updatedAt }`. */
+  @Patch(':id/title')
+  async rename(
+    @CurrentUser() user: AuthUser,
+    @UuidParam('id') id: string,
+    @Body({ schema: renameCvSchema }) body: RenameCvInput,
+  ): Promise<RenameCvResponse> {
+    return ownedOrNotFound(await this.cvs.renameOwned(id, user.id, body.title));
   }
 
   @Delete(':id')

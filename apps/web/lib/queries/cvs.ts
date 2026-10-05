@@ -5,6 +5,7 @@ import {
   type CvDetailDto,
   type CvSummaryDto,
   type JobStatusDto,
+  type RenameCvResponse,
   type RetryCvResponse,
 } from '@cv/shared';
 import { queryOptions } from '@tanstack/react-query';
@@ -54,6 +55,11 @@ export function createCv(
 /** A new generation of a failed CV on its saved source (AC-5.6). */
 export function retryCv(id: string): Promise<RetryCvResponse> {
   return apiFetch<RetryCvResponse>(`/api/cvs/${id}/retry`, { method: 'POST' });
+}
+
+/** A new title for the CV (AC-12.4); the document and its version are untouched. */
+export function renameCv(id: string, title: string): Promise<RenameCvResponse> {
+  return apiFetch<RenameCvResponse>(`/api/cvs/${id}/title`, { method: 'PATCH', json: { title } });
 }
 
 export function deleteCv(id: string): Promise<void> {

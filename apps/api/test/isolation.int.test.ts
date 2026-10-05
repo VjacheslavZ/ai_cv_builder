@@ -43,6 +43,12 @@ const ENDPOINTS: Endpoint[] = [
   },
   { name: 'POST retry', method: 'post', path: (t) => `/api/cvs/${t.cvId}/retry` },
   {
+    name: 'PATCH title',
+    method: 'patch',
+    path: (t) => `/api/cvs/${t.cvId}/title`,
+    body: { title: 'Taken over' },
+  },
+  {
     name: 'POST answer',
     method: 'post',
     path: (t) => `/api/cvs/${t.cvId}/questions/${t.questionId}/answer`,

@@ -7,8 +7,10 @@ import {
   emptyCvDocument,
   idempotencyKeySchema,
   PDF_MAX_BYTES,
+  renameCvSchema,
   ROLE_MAX_LENGTH,
   SOURCE_TEXT_MAX_LENGTH,
+  TITLE_MAX_LENGTH,
 } from './index.js';
 
 const E = '0b6c1f5e-4c1a-4d2b-9a77-1f2e3d4c5b6a';
@@ -59,6 +61,21 @@ describe('createCvSchema', () => {
     expect(createCvSchema.parse({ role: 'Dev', text: 'x', userId: 'someone' })).not.toHaveProperty(
       'userId',
     );
+  });
+});
+
+describe('renameCvSchema (AC-12.4)', () => {
+  it('trims the title and accepts 1–100 characters', () => {
+    expect(renameCvSchema.parse({ title: '  Staff Engineer  ' })).toEqual({
+      title: 'Staff Engineer',
+    });
+    expect(renameCvSchema.safeParse({ title: 'x'.repeat(TITLE_MAX_LENGTH) }).success).toBe(true);
+  });
+
+  it('rejects an empty, blank, or too long title', () => {
+    for (const title of ['', '   ', 'x'.repeat(TITLE_MAX_LENGTH + 1), undefined, 42]) {
+      expect(renameCvSchema.safeParse({ title }).success).toBe(false);
+    }
   });
 });
 
