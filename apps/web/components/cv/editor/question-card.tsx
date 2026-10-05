@@ -16,6 +16,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiRequestError } from '@/lib/api-fetch';
 import { answerQuestion, dismissQuestion } from '@/lib/queries/editing';
 import { questionAnchorId } from '@/lib/question-marks';
+import { QuestionLocation } from './question-location';
 
 const TYPE_LABEL: Record<QuestionType, string> = {
   missing: 'Missing',
@@ -60,12 +61,13 @@ export function QuestionCard({ cvId, question, onAnswered, onDismissed }: Questi
   const error = send.error ?? skip.error;
 
   return (
-    <li className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
+    <li className="flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm">
       <button
         type="button"
         onClick={() => show(question.path)}
         className="flex min-h-11 flex-col items-start gap-1 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
       >
+        <QuestionLocation path={question.path} />
         <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
           {TYPE_LABEL[question.type]}
         </span>

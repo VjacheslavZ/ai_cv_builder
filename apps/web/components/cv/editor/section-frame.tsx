@@ -25,6 +25,8 @@ export function SectionFrame({ path, title, className, children }: SectionFrameP
   const updating = lockedScopes.some((scope) => isFieldPathWithin(path, scope));
   const flash = flashed.some((scope) => isFieldPathWithin(path, scope));
   const Heading = title ? 'h3' : null;
+  // A titled section is a top-level block of the form: a white card on the gray page.
+  const card = Boolean(title);
 
   return (
     <section
@@ -32,8 +34,15 @@ export function SectionFrame({ path, title, className, children }: SectionFrameP
       aria-busy={updating || undefined}
       className={cn(
         'relative flex scroll-mt-20 flex-col gap-3 rounded-lg transition-colors duration-700',
-        marked && '-mx-2 bg-amber-500/10 px-2 py-2 ring-1 ring-amber-500/50',
-        flash && '-mx-2 bg-emerald-500/15 px-2 py-2 ring-1 ring-emerald-500/50',
+        card && 'border bg-card p-4',
+        marked &&
+          (card
+            ? 'bg-amber-50 ring-1 ring-amber-500/50 dark:bg-amber-500/10'
+            : '-mx-2 bg-amber-500/10 px-2 py-2 ring-1 ring-amber-500/50'),
+        flash &&
+          (card
+            ? 'bg-emerald-50 ring-1 ring-emerald-500/50 dark:bg-emerald-500/15'
+            : '-mx-2 bg-emerald-500/15 px-2 py-2 ring-1 ring-emerald-500/50'),
         className,
       )}
     >

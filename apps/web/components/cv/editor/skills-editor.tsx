@@ -97,7 +97,13 @@ function AddSkillForm({ onAdd, disabled }: { onAdd(name: string): void; disabled
           }}
           className="h-11 flex-1 text-base sm:max-w-xs"
         />
-        <Button type="button" variant="outline" className="h-11" disabled={disabled} onClick={add}>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-11 px-1.5"
+          disabled={disabled}
+          onClick={add}
+        >
           Add
         </Button>
       </div>

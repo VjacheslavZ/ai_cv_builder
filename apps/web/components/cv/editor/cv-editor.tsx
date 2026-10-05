@@ -76,7 +76,7 @@ export function CvEditor({ detail }: { detail: CvDetailDto & { document: CvDocum
               </button>
             ))}
           </div>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <SaveStatus autosave={autosave} />
             <DownloadPdfButton cvId={detail.id} autosave={autosave} />
           </div>
@@ -86,7 +86,7 @@ export function CvEditor({ detail }: { detail: CvDetailDto & { document: CvDocum
           <form
             noValidate
             onSubmit={(e) => e.preventDefault()}
-            className={cn('flex min-w-0 flex-col gap-6', tab !== 'cv' && 'hidden lg:flex')}
+            className={cn('flex min-w-0 flex-col gap-4', tab !== 'cv' && 'hidden lg:flex')}
           >
             <SortableLists>
               <ContactEditor />
