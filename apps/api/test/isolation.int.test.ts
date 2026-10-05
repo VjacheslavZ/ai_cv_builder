@@ -34,6 +34,7 @@ interface Endpoint {
 const ENDPOINTS: Endpoint[] = [
   { name: 'GET cv', method: 'get', path: (t) => `/api/cvs/${t.cvId}` },
   { name: 'GET pdf', method: 'get', path: (t) => `/api/cvs/${t.cvId}/pdf` },
+  { name: 'GET pdf preview', method: 'get', path: (t) => `/api/cvs/${t.cvId}/pdf/preview` },
   { name: 'GET job', method: 'get', path: (t) => `/api/jobs/${t.jobId}` },
   {
     name: 'PATCH cv',

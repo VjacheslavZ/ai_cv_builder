@@ -7,12 +7,14 @@ import type { AppConfig } from '../config/env.schema.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { InjectRedis } from '../redis/redis.module.js';
 
-const HOUR_MS = 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
 
 /**
  * NFR-S9: at most N active generation jobs per user (counted in Postgres, the source of truth)
  * and N generations per hour (a Redis counter); answers applied by the AI have their own hourly
- * counter and never count toward the generation limits.
+ * counter and never count toward the generation limits. Live PDF preview renders have a
+ * per-minute counter of their own (AC-11.7).
  */
 @Injectable()
 export class GenerationLimits {
@@ -28,6 +30,7 @@ export class GenerationLimits {
       this.config.limits.generationsPerHour,
       'You have started too many generations this hour. Try again later.',
       now,
+      HOUR_MS,
     );
   }
 
@@ -41,17 +44,35 @@ export class GenerationLimits {
       this.config.limits.answersPerHour,
       'You have sent too many answers this hour. Try again later.',
       now,
+      HOUR_MS,
     );
   }
 
-  private async consume(prefix: string, limit: number, message: string, now: number) {
-    const key = `${prefix}:${Math.floor(now / HOUR_MS)}`;
+  /** Counts one live preview render (AC-11.7) for this minute; the download is not counted. */
+  consumePdfPreview(userId: string, now = Date.now()): Promise<void> {
+    return this.consume(
+      `rl:pdfp:${userId}`,
+      this.config.limits.pdfPreviewsPerMinute,
+      'The preview is paused for a moment. Your changes are saved.',
+      now,
+      MINUTE_MS,
+    );
+  }
+
+  private async consume(
+    prefix: string,
+    limit: number,
+    message: string,
+    now: number,
+    windowMs: number,
+  ) {
+    const key = `${prefix}:${Math.floor(now / windowMs)}`;
     let count: number;
     try {
       const [[incrErr, incremented], [expireErr]] = (await this.redis
         .multi()
         .incr(key)
-        .expire(key, HOUR_MS / 1000)
+        .expire(key, windowMs / 1000)
         .exec()) as [[Error | null, number], [Error | null, unknown]];
       if (incrErr ?? expireErr) throw incrErr ?? expireErr;
       count = incremented;

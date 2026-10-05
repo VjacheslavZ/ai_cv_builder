@@ -16,7 +16,11 @@ describe('loadConfig', () => {
       jobDeadlineMs: 600_000,
       sweeperIntervalMs: 30_000,
     });
-    expect(config.limits).toMatchObject({ generationsPerHour: 20, answersPerHour: 60 });
+    expect(config.limits).toMatchObject({
+      generationsPerHour: 20,
+      answersPerHour: 60,
+      pdfPreviewsPerMinute: 30,
+    });
     expect(config.http.jsonBodyLimit).toBe('1mb');
   });
 

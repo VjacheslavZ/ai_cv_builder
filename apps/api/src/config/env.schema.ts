@@ -86,6 +86,8 @@ export const envSchema = z.object({
   MAX_ACTIVE_GENERATIONS_PER_USER: count(2),
   GENERATIONS_PER_HOUR: count(20),
   ANSWERS_PER_HOUR: count(60),
+  // Live PDF preview renders per user per minute (AC-11.7, NFR-S9); the download is not limited.
+  PDF_PREVIEWS_PER_MINUTE: count(30),
   LLM_INVALID_OUTPUT_RETRIES: z.coerce.number().int().nonnegative().default(2),
 
   PDF_MAX_BYTES: count(PDF_MAX_BYTES),
@@ -180,6 +182,7 @@ export function loadConfig(source: NodeJS.ProcessEnv) {
       maxActiveGenerationsPerUser: env.MAX_ACTIVE_GENERATIONS_PER_USER,
       generationsPerHour: env.GENERATIONS_PER_HOUR,
       answersPerHour: env.ANSWERS_PER_HOUR,
+      pdfPreviewsPerMinute: env.PDF_PREVIEWS_PER_MINUTE,
       workerMaxStalledCount: env.WORKER_MAX_STALLED_COUNT,
       jobAttempts: env.JOB_ATTEMPTS,
     },

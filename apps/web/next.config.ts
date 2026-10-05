@@ -24,6 +24,14 @@ const nextConfig: NextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
         ],
       },
+      {
+        // The live PDF preview (AC-11.7) is the one response this origin may frame. The API sets
+        // `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN` on it; should Next add its
+        // own header to the proxied response, the later rule for the same key wins, so it is
+        // `'self'` here too and never the `'none'` above.
+        source: '/api/cvs/:id/pdf/preview',
+        headers: [{ key: 'Content-Security-Policy', value: "frame-ancestors 'self'" }],
+      },
     ];
   },
 };
