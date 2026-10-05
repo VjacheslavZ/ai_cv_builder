@@ -1,6 +1,6 @@
 # AI CV Builder — Development Plan
 
-Derived from [`docs/SPEC.md`](../SPEC.md) v1.1. Each phase ends in a runnable, tested state; nothing in a later phase is required to demo an earlier one. Test strategy: [testing.md](testing.md).
+Derived from [`docs/SPEC.md`](../SPEC.md) v1.2. Each phase ends in a runnable, tested state; nothing in a later phase is required to demo an earlier one. Test strategy: [testing.md](testing.md).
 
 ## Phases
 
@@ -13,7 +13,8 @@ Derived from [`docs/SPEC.md`](../SPEC.md) v1.1. Each phase ends in a runnable, t
 | 4 | Editor, questions, apply answer | FR-8.3–8.6, FR-9 (P0), FR-10 (P0), NFR-M1–M3, M5, M6, M8 | [phase-4-editor-and-answers.md](phase-4-editor-and-answers.md) |
 | 5 | PDF export & retry | FR-11, AC-5.6 retry | [phase-5-pdf-and-lifecycle.md](phase-5-pdf-and-lifecycle.md) |
 | 6 | Hardening & release | §5.4 (P0), NFR-R8, R10–R12, M1, M7, README | [phase-6-hardening.md](phase-6-hardening.md) |
-| 7 | P1 features | FR-13, AC-9.6, 10.2, 10.5, 12.4, Playwright (P1) | [phase-7-p1.md](phase-7-p1.md) |
+| 7 | P1 features | AC-10.2, 12.4 (FR-13, AC-9.6, 10.5, Playwright P1 skipped) | [phase-7-p1.md](phase-7-p1.md) |
+| 8 | Live PDF preview & three-column editor | AC-11.7, NFR-M2 (desktop), NFR-S9 (preview limit) | [phase-8-pdf-preview.md](phase-8-pdf-preview.md) |
 
 ```mermaid
 flowchart LR
@@ -25,6 +26,7 @@ flowchart LR
   P4 --> P6[6 Hardening]
   P5 --> P6
   P6 --> P7[7 P1 features]
+  P7 --> P8[8 PDF preview]
 ```
 
 Phases 4 and 5 are independent of each other once phase 3 is done.
