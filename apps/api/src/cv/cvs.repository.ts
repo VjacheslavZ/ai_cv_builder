@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { ACTIVE_JOB_STATUSES, type CreateCvResponse, type CvSummaryDto } from '@cv/shared';
+import {
+  ACTIVE_JOB_STATUSES,
+  type CreateCvResponse,
+  type CvSummaryDto,
+  type RenameCvResponse,
+} from '@cv/shared';
 import { toErrorCode } from '../jobs/job.mapper.js';
 import type { CvModel } from '../generated/prisma/models/Cv.js';
 import type { QuestionModel } from '../generated/prisma/models/Question.js';
@@ -38,6 +43,21 @@ export class CvsRepository {
 
   findOwned(id: string, userId: string): Promise<CvModel | null> {
     return this.prisma.cv.findFirst({ where: { id, userId } });
+  }
+
+  /**
+   * AC-12.4: the title only, in any status. One conditional update, so no row lock is needed;
+   * `version` is untouched (the title is not part of the document), `updatedAt` moves the CV to
+   * the top of the list. `null` if the CV does not exist or is not owned.
+   */
+  async renameOwned(id: string, userId: string, title: string): Promise<RenameCvResponse | null> {
+    const { count } = await this.prisma.cv.updateMany({ where: { id, userId }, data: { title } });
+    if (count === 0) return null;
+    const cv = await this.prisma.cv.findFirst({
+      where: { id, userId },
+      select: { title: true, updatedAt: true },
+    });
+    return cv && { title: cv.title, updatedAt: cv.updatedAt.toISOString() };
   }
 
   /** The owned CV under `SELECT … FOR UPDATE` in the caller's transaction, or `null`. */

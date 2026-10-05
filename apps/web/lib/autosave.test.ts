@@ -169,3 +169,83 @@ describe('Autosave and AI updates (AC-10.4)', () => {
     expect(other.autosave.dirty).toBe(false);
   });
 });
+
+describe('Autosave list ops (AC-10.2)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const NEW = 'a02b1c33-4d5e-4f6a-9b7c-8d9e0f1a2b3c';
+  const LIST = `experience.${E}.bullets`;
+  const ITEM = `${LIST}.${NEW}`;
+
+  it('keeps ops in order and sends list ops at once', async () => {
+    const { autosave, calls } = setup();
+    autosave.set('summary', 'Hi');
+    autosave.insert(LIST, 0, { id: NEW, text: '' });
+    await settle();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.ops).toEqual([
+      { op: 'set', path: 'summary', value: 'Hi' },
+      { op: 'insert', path: LIST, index: 0, value: { id: NEW, text: '' } },
+    ]);
+    // Typed into the new item while it was saving: sent after it, in the next save.
+    autosave.set(ITEM, 'Shipped');
+    autosave.move(ITEM, 1);
+    expect(autosave.unsavedPaths()).toEqual(['summary', ITEM]);
+    calls[0]!.resolve(2);
+    await settle();
+    expect(calls[1]).toMatchObject({
+      baseVersion: 2,
+      ops: [
+        { op: 'set', path: ITEM, value: 'Shipped' },
+        { op: 'move', path: ITEM, index: 1 },
+      ],
+    });
+  });
+
+  it('a later value of a field replaces its queued one in place', async () => {
+    const { autosave, calls } = setup();
+    autosave.insert(LIST, 0, { id: NEW, text: '' });
+    autosave.set(ITEM, 'S');
+    autosave.set('summary', 'Hi');
+    autosave.set(ITEM, 'Shipped');
+    await settle();
+    expect(calls[0]!.ops.map((op) => op.op === 'set' && op.value)).toEqual([
+      false,
+      'Shipped',
+      'Hi',
+    ]);
+  });
+
+  it('removing an item drops its unsaved changes; an unsaved new item is never sent', async () => {
+    const { autosave, calls } = setup();
+    autosave.set(BULLET, 'typed');
+    autosave.remove(BULLET);
+    autosave.insert(LIST, 0, { id: NEW, text: '' });
+    autosave.set(ITEM, 'typed too');
+    autosave.remove(ITEM);
+    await settle();
+    expect(calls[0]!.ops).toEqual([{ op: 'remove', path: BULLET }]);
+  });
+
+  it('nothing left to send after removing an unsaved item: saved', async () => {
+    const { autosave, calls } = setup();
+    autosave.insert(LIST, 0, { id: NEW, text: '' });
+    autosave.remove(ITEM);
+    await settle();
+    expect(calls).toHaveLength(0);
+    expect(autosave.getState().status).toBe('saved');
+    expect(autosave.dirty).toBe(false);
+  });
+
+  it('a failed save puts its ops back in front of the newer ones', async () => {
+    const { autosave, calls } = setup();
+    autosave.insert(LIST, 0, { id: NEW, text: '' });
+    await settle();
+    autosave.set(ITEM, 'Shipped');
+    calls[0]!.reject(new SaveError());
+    await settle();
+    expect(autosave.getState().status).toBe('error');
+    expect(autosave.unsavedOps().map((op) => op.op)).toEqual(['insert', 'set']);
+  });
+});

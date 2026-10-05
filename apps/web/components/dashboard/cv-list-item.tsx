@@ -1,10 +1,12 @@
 'use client';
 
 import { isRetryableFailure, type CvSummaryDto } from '@cv/shared';
-import { RotateCcwIcon, Trash2Icon } from 'lucide-react';
+import { PencilIcon, RotateCcwIcon, Trash2Icon } from 'lucide-react';
 import Link from 'next/link';
+import { useState } from 'react';
 
 import { CvStatusBadge } from '@/components/cv/cv-status-badge';
+import { TitleForm } from '@/components/cv/title-form';
 import { retryErrorText, useRetryCv } from '@/components/cv/use-retry-cv';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
@@ -22,10 +24,19 @@ function questionsLabel(count: number): string | null {
   return count === 1 ? '1 open question' : `${count} open questions`;
 }
 
-/** One dashboard row: open, retry a failed generation (AC-5.6), delete. */
+/** One dashboard row: open, rename (AC-12.4), retry a failed generation (AC-5.6), delete. */
 export function CvListItem({ cv, onDelete }: { cv: CvSummaryDto; onDelete(): void }) {
+  const [renaming, setRenaming] = useState(false);
   const questions = questionsLabel(cv.openQuestions);
   const canRetry = cv.status === 'failed' && isRetryableFailure(cv.failureCode);
+
+  if (renaming) {
+    return (
+      <li className="flex p-2 pl-4">
+        <TitleForm cvId={cv.id} title={cv.title} onDone={() => setRenaming(false)} />
+      </li>
+    );
+  }
   return (
     <li className="flex items-center gap-2 p-2 pl-4">
       <Link
@@ -40,6 +51,15 @@ export function CvListItem({ cv, onDelete }: { cv: CvSummaryDto; onDelete(): voi
         </span>
       </Link>
       {canRetry && <RetryButton cv={cv} />}
+      <Button
+        variant="ghost"
+        size="icon-lg"
+        className="size-11"
+        aria-label={`Rename ${cv.title}`}
+        onClick={() => setRenaming(true)}
+      >
+        <PencilIcon />
+      </Button>
       <Button
         variant="ghost"
         size="icon-lg"

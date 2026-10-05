@@ -6,6 +6,7 @@ import type { CvDocument } from './document.js';
 
 // Input limits are part of the contract (AC-3.3, NFR-S4): the form and the API enforce the same.
 export const ROLE_MAX_LENGTH = 100;
+export const TITLE_MAX_LENGTH = 100;
 export const SOURCE_TEXT_MAX_LENGTH = 20_000;
 export const PDF_MAX_BYTES = 10 * 1024 * 1024;
 export const PDF_MAX_PAGES = 10;
@@ -70,6 +71,24 @@ export interface CreateCvResponse {
 
 /** `202` from `POST /api/cvs/:id/retry`: the new `generate` job on the saved source. */
 export type RetryCvResponse = CreateCvResponse;
+
+/**
+ * `PATCH /api/cvs/:id/title` (AC-12.4): the name in the list, 1–100 characters. It is not part
+ * of the document, so it has no `baseVersion` and does not change `version`.
+ */
+export const renameCvSchema = z.object({
+  title: z
+    .string('Enter a title')
+    .trim()
+    .min(1, 'Enter a title')
+    .max(TITLE_MAX_LENGTH, `Use at most ${TITLE_MAX_LENGTH} characters`),
+});
+export type RenameCvInput = z.infer<typeof renameCvSchema>;
+
+export interface RenameCvResponse {
+  title: string;
+  updatedAt: string;
+}
 
 export const CV_STATUSES = ['generating', 'ready', 'failed'] as const;
 export type CvStatus = (typeof CV_STATUSES)[number];

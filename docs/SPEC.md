@@ -365,7 +365,7 @@ Priorities:
 
 **AC-10.2 Add, remove, reorder — P1**
 - **Given** the draft is open
-- **When** the user adds or removes a bullet, experience entry, education entry, or skill, or reorders with ↑/↓ buttons (no drag-and-drop, for touch friendliness)
+- **When** the user adds or removes a bullet, experience entry, education entry, or skill, or reorders by dragging an item by its handle (touch: after a short hold on the handle, so scrolling never drags; keyboard: Space, arrow keys, Space)
 - **Then** the change is saved under the same rules
 
 **AC-10.3 Manual text is a fact**

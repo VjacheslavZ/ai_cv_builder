@@ -83,7 +83,7 @@ export class CvEditingService {
         },
         select: { version: true },
       });
-      const resolvedQuestionIds = await resolveCoveredQuestions(tx, id, applied.editedPaths);
+      const resolvedQuestionIds = await resolveCoveredQuestions(tx, id, applied.touchedPaths);
       return { version: updated.version, resolvedQuestionIds };
     });
     this.logger.log(

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  addEditedPaths,
   applyScopeFor,
   ErrorCode,
   isSimpleField,
@@ -17,7 +18,6 @@ import type { QuestionModel } from '../generated/prisma/models/Question.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CvQueueService } from '../queue/cv-queue.service.js';
 import { GenerationLimits } from '../rate-limit/generation-limits.js';
-import { addEditedPaths } from './apply-ops.js';
 import { editableDocument, resolveCoveredQuestions } from './cv-editing.service.js';
 import { CvsRepository } from './cvs.repository.js';
 

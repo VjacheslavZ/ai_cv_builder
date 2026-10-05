@@ -7,6 +7,7 @@ import { CvWarnings } from '@/components/cv/cv-notices';
 import { CvEditor } from '@/components/cv/editor/cv-editor';
 import { CvPageShell } from '@/components/cv/cv-page-shell';
 import { CvStatusBadge } from '@/components/cv/cv-status-badge';
+import { EditableTitle } from '@/components/cv/editable-title';
 import { GenerationFailed } from '@/components/cv/generation-failed';
 import { GenerationStages } from '@/components/cv/generation-stages';
 import { ApiRequestError } from '@/lib/api-fetch';
@@ -43,7 +44,11 @@ export function CvProgressView({ cvId }: { cvId: string }) {
   if (!detail || !status) return <CvPageShell title="Loading…">{null}</CvPageShell>;
 
   return (
-    <CvPageShell title={detail.title} badge={<CvStatusBadge status={status} />}>
+    <CvPageShell
+      title={detail.title}
+      heading={<EditableTitle cvId={cvId} title={detail.title} />}
+      badge={<CvStatusBadge status={status} />}
+    >
       <CvWarnings warnings={progress.cv?.warnings ?? detail.warnings} />
       {status === 'generating' && <GenerationStages job={progress.job} />}
       {status === 'failed' && (
