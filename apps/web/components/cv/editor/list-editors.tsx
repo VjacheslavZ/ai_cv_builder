@@ -1,12 +1,17 @@
 'use client';
 
-import { useFieldArray } from 'react-hook-form';
-
-import { DatesField } from './dates-field';
+import { newEducation, newExperience } from '@/lib/list-items';
 import { EditableField } from './editable-field';
-import { useEditor } from './editor-context';
+import { EducationEntry } from './education-entry';
 import { ExperienceEntry } from './experience-entry';
-import { FieldAnchor, SectionFrame } from './section-frame';
+import { AddItemButton, RemoveItemButton } from './item-controls';
+import { SectionFrame } from './section-frame';
+import { SortableItem } from './sortable-item';
+import { useListEditor } from './use-list-editor';
+
+export { SkillsEditor } from './skills-editor';
+
+const entryClass = 'border-t pt-3 first:border-t-0 first:pt-0';
 
 export function SummaryEditor() {
   return (
@@ -17,73 +22,88 @@ export function SummaryEditor() {
 }
 
 export function ExperienceEditor() {
-  const { form } = useEditor();
-  const entries = useFieldArray({ control: form.control, name: 'experience', keyName: 'key' });
+  const entries = useListEditor('experience', 'experience', 'Job');
   return (
     <SectionFrame path="experience" title="Experience">
-      {entries.fields.length === 0 && <Empty text="No work experience yet." />}
-      {entries.fields.map((entry, index) => (
-        <ExperienceEntry key={entry.key} index={index} id={entry.id} />
-      ))}
+      {entries.items.length === 0 && <Empty text="No work experience yet." />}
+      <ul className="flex flex-col gap-3" aria-label="Jobs">
+        {entries.items.map((entry, index) => (
+          // Keyed by place too: the entry's bullets are a field array named by its index.
+          <SortableItem
+            key={`${entry.key}:${index}`}
+            id={entry.id}
+            index={index}
+            list="experience"
+            label={`job ${index + 1}`}
+            onMove={entries.move}
+            disabled={entries.locked(entry.id)}
+            className={entryClass}
+          >
+            {(handle) => (
+              <ExperienceEntry
+                index={index}
+                id={entry.id}
+                controls={
+                  <>
+                    {handle}
+                    <RemoveItemButton
+                      label={`job ${index + 1}`}
+                      onRemove={() => entries.remove(index)}
+                      disabled={entries.locked(entry.id)}
+                    />
+                  </>
+                }
+              />
+            )}
+          </SortableItem>
+        ))}
+      </ul>
+      <AddItemButton onClick={() => entries.add(newExperience())} disabled={entries.locked()}>
+        Add job
+      </AddItemButton>
     </SectionFrame>
   );
 }
 
 export function EducationEditor() {
-  const { form } = useEditor();
-  const entries = useFieldArray({ control: form.control, name: 'education', keyName: 'key' });
+  const entries = useListEditor('education', 'education', 'Education entry');
   return (
     <SectionFrame path="education" title="Education">
-      {entries.fields.length === 0 && <Empty text="No education yet." />}
-      {entries.fields.map((entry, index) => {
-        const base = `education.${entry.id}`;
-        return (
-          <SectionFrame
+      {entries.items.length === 0 && <Empty text="No education yet." />}
+      <ul className="flex flex-col gap-3" aria-label="Education">
+        {entries.items.map((entry, index) => (
+          <SortableItem
             key={entry.key}
-            path={base}
-            className="border-t pt-3 first:border-t-0 first:pt-0"
+            id={entry.id}
+            index={index}
+            list="education"
+            label={`education entry ${index + 1}`}
+            onMove={entries.move}
+            disabled={entries.locked(entry.id)}
+            className={entryClass}
           >
-            <div className="grid gap-3 sm:grid-cols-2">
-              <FieldAnchor path={`${base}.institution`}>
-                <EditableField
-                  name={`education.${index}.institution`}
-                  path={`${base}.institution`}
-                  label="Institution"
-                />
-              </FieldAnchor>
-              <EditableField
-                name={`education.${index}.degree`}
-                path={`${base}.degree`}
-                label="Degree"
+            {(handle) => (
+              <EducationEntry
+                index={index}
+                id={entry.id}
+                controls={
+                  <>
+                    {handle}
+                    <RemoveItemButton
+                      label={`education entry ${index + 1}`}
+                      onRemove={() => entries.remove(index)}
+                      disabled={entries.locked(entry.id)}
+                    />
+                  </>
+                }
               />
-            </div>
-            <FieldAnchor path={`${base}.dates`}>
-              <DatesField name={`education.${index}.dates`} path={`${base}.dates`} />
-            </FieldAnchor>
-          </SectionFrame>
-        );
-      })}
-    </SectionFrame>
-  );
-}
-
-export function SkillsEditor() {
-  const { form } = useEditor();
-  const skills = useFieldArray({ control: form.control, name: 'skills', keyName: 'key' });
-  return (
-    <SectionFrame path="skills" title="Skills">
-      {skills.fields.length === 0 && <Empty text="No skills yet." />}
-      <div className="grid gap-2 sm:grid-cols-2">
-        {skills.fields.map((skill, index) => (
-          <EditableField
-            key={skill.key}
-            name={`skills.${index}.name`}
-            path={`skills.${skill.id}`}
-            label={`Skill ${index + 1}`}
-            hideLabel
-          />
+            )}
+          </SortableItem>
         ))}
-      </div>
+      </ul>
+      <AddItemButton onClick={() => entries.add(newEducation())} disabled={entries.locked()}>
+        Add education
+      </AddItemButton>
     </SectionFrame>
   );
 }

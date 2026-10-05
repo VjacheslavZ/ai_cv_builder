@@ -1,8 +1,9 @@
 import { isFieldPathWithin, type CvConflictState, type PatchOp } from '@cv/shared';
 
 // Autosave for the CV editor (AC-10.1, AC-10.4, NFR-M5). Plain TypeScript, no React, so every
-// rule is unit-tested: changes are collected per field path (the latest value wins), sent after
-// a debounce or on flush, one request at a time, each on top of the last known `version`.
+// rule is unit-tested: changes are queued as ops in the order they happened (a field's latest
+// value replaces its earlier `set`; list ops, AC-10.2, keep their place), sent after a debounce
+// or on flush, one request at a time, each on top of the last known `version`.
 //
 // AI updates are not conflicts: when the server reports a newer version that came from an AI
 // rewrite of another part (`rebase`), pending changes are re-sent on it automatically. A 409 the
@@ -37,7 +38,7 @@ export interface AutosaveOptions {
 
 export class Autosave {
   private state: AutosaveState;
-  private readonly pending = new Map<string, unknown>();
+  private pending: PatchOp[] = [];
   private inFlight: PatchOp[] | null = null;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private explainTimer: ReturnType<typeof setTimeout> | undefined;
@@ -64,29 +65,56 @@ export class Autosave {
 
   /** True while some change is not confirmed by the server yet. */
   get dirty(): boolean {
-    return this.pending.size > 0 || this.inFlight !== null;
+    return this.pending.length > 0 || this.inFlight !== null;
   }
 
-  /** Paths with unsaved changes (pending or in flight). */
+  /** The places with unsaved changes (pending or in flight); an added item by its own path. */
   unsavedPaths(): string[] {
-    return [...new Set([...this.pending.keys(), ...(this.inFlight ?? []).map((op) => op.path)])];
+    return [...new Set(this.unsavedOps().map(targetOf))];
+  }
+
+  /** Every unsaved op, in order: what a conflict replays on top of the server's state. */
+  unsavedOps(): PatchOp[] {
+    return [...(this.inFlight ?? []), ...this.pending];
   }
 
   /** A field changed. Saved after the debounce, or on `flush`. */
   set(path: string, value: unknown): void {
-    this.pending.set(path, value);
-    if (this.state.status === 'conflict') return;
-    this.update({ status: this.inFlight ? 'saving' : 'pending' });
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.flush(), this.debounceMs);
+    const queued = this.pending.find((op) => op.op === 'set' && op.path === path);
+    if (queued) (queued as { value: unknown }).value = value;
+    else this.pending.push({ op: 'set', path, value });
+    this.schedule(this.debounceMs);
+  }
+
+  /** A new item at `index` of the list at `path` (AC-10.2). Saved at once. */
+  insert<T extends { id: string }>(path: string, index: number, value: T): void {
+    this.pending.push({ op: 'insert', path, index, value });
+    this.schedule(0);
+  }
+
+  /** The item at `path` moved to `index` of its list. Saved at once. */
+  move(path: string, index: number): void {
+    this.pending.push({ op: 'move', path, index });
+    this.schedule(0);
+  }
+
+  /**
+   * The item at `path` was removed. Unsaved changes inside it are dropped (the server would
+   * reject them); if the item itself was never saved, nothing is sent at all.
+   */
+  remove(path: string): void {
+    const unsavedInsert = this.pending.some((op) => op.op === 'insert' && targetOf(op) === path);
+    this.pending = this.pending.filter((op) => !isFieldPathWithin(targetOf(op), path));
+    if (!unsavedInsert) this.pending.push({ op: 'remove', path });
+    this.schedule(0);
   }
 
   /** Save now (on blur, and when the tab is hidden). */
   flush(): void {
     clearTimeout(this.timer);
-    if (this.inFlight || this.pending.size === 0 || this.state.status === 'conflict') return;
-    const ops: PatchOp[] = [...this.pending].map(([path, value]) => ({ op: 'set', path, value }));
-    this.pending.clear();
+    if (this.inFlight || this.pending.length === 0 || this.state.status === 'conflict') return;
+    const ops = this.pending;
+    this.pending = [];
     this.send(ops);
   }
 
@@ -139,7 +167,7 @@ export class Autosave {
   /** Drop the unsaved values and continue from the server's version. */
   discard(): void {
     const conflict = this.state.conflict;
-    this.pending.clear();
+    this.pending = [];
     this.update({
       status: 'idle',
       version: conflict?.version ?? this.state.version,
@@ -153,21 +181,36 @@ export class Autosave {
     clearTimeout(this.explainTimer);
   }
 
+  private schedule(delayMs: number): void {
+    if (this.state.status === 'conflict') return;
+    if (this.pending.length === 0 && !this.inFlight) {
+      clearTimeout(this.timer);
+      this.update({ status: 'saved' });
+      return;
+    }
+    this.update({ status: this.inFlight ? 'saving' : 'pending' });
+    clearTimeout(this.timer);
+    // A queued list op goes out at once: typing after it must not hold it back.
+    const listOpQueued = this.pending.some((op) => op.op !== 'set');
+    this.timer = setTimeout(() => this.flush(), listOpQueued ? 0 : delayMs);
+  }
+
   private send(ops: PatchOp[]): void {
     this.inFlight = ops;
     this.update({ status: 'saving' });
     this.options.save(this.state.version, ops).then(
       ({ version }) => {
         this.inFlight = null;
-        this.update({ version, status: this.pending.size > 0 ? 'pending' : 'saved' });
-        if (this.pending.size > 0) this.flush();
+        this.update({ version, status: this.pending.length > 0 ? 'pending' : 'saved' });
+        if (this.pending.length > 0) this.flush();
       },
       (error: unknown) => {
         const failed = this.inFlight ?? [];
         this.inFlight = null;
-        // Keep the failed values unless a newer value for the same field is already pending.
-        for (const op of failed)
-          if (!this.pending.has(op.path)) this.pending.set(op.path, op.value);
+        // Back in front of the queue, unless a newer value for the same field is already pending.
+        const newer = (op: PatchOp) =>
+          op.op === 'set' && this.pending.some((p) => p.op === 'set' && p.path === op.path);
+        this.pending = [...failed.filter((op) => !newer(op)), ...this.pending];
         if (error instanceof SaveError && error.conflict) this.onConflict(error.conflict, failed);
         else this.update({ status: 'error' });
       },
@@ -217,6 +260,11 @@ export class Autosave {
     this.state = { ...this.state, ...patch };
     for (const listener of this.listeners) listener();
   }
+}
+
+/** Where an op lands: an inserted item by its own path, anything else by `path`. */
+function targetOf(op: PatchOp): string {
+  return op.op === 'insert' ? `${op.path}.${(op.value as { id: string }).id}` : op.path;
 }
 
 /** Two paths touch when one contains the other. */

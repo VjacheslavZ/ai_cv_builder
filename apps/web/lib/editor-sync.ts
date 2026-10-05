@@ -1,4 +1,12 @@
-import { getField, parseFieldPath, setField, type CvDocument, type CvSection } from '@cv/shared';
+import {
+  applyListOp,
+  getField,
+  parseFieldPath,
+  setField,
+  type CvDocument,
+  type CvSection,
+  type PatchOp,
+} from '@cv/shared';
 
 // Bringing server changes into the editor without touching what the user is typing (AC-10.4):
 // the form takes the changed part from the server and keeps every unsaved local value.
@@ -47,16 +55,24 @@ export function takeScope(local: CvDocument, server: CvDocument, scope: string):
   return next;
 }
 
-/** `server` with the local value of every unsaved field put back (a conflict keeps your text). */
+/**
+ * `server` with every unsaved change replayed in order (a conflict keeps your text, and the
+ * items you added, removed, or moved, AC-10.2). A field takes its value on screen, which may be
+ * newer than the queued one; an op that no longer fits the server's state is skipped.
+ */
 export function overlayUnsaved(
   server: CvDocument,
   local: CvDocument,
-  unsavedPaths: string[],
+  unsavedOps: PatchOp[],
 ): CvDocument {
   const next = structuredClone(server);
-  for (const path of unsavedPaths) {
-    const value = getField(local, path);
-    if (value !== undefined) setField(next, path, structuredClone(value));
+  for (const op of unsavedOps) {
+    if (op.op !== 'set') {
+      applyListOp(next, structuredClone(op));
+      continue;
+    }
+    const value = getField(local, op.path) ?? op.value;
+    if (value !== undefined) setField(next, op.path, structuredClone(value));
   }
   return next;
 }

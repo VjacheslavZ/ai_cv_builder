@@ -120,7 +120,20 @@ describe('field values (AC-10.6)', () => {
     expect(patchCvSchema.safeParse({ baseVersion: 3, ops: [] }).success).toBe(false);
     expect(patchCvSchema.safeParse({ baseVersion: -1, ops: [op] }).success).toBe(false);
     expect(
-      patchCvSchema.safeParse({ baseVersion: 1, ops: [{ ...op, op: 'remove' }] }).success,
+      patchCvSchema.safeParse({ baseVersion: 1, ops: [{ ...op, op: 'rename' }] }).success,
+    ).toBe(false);
+    // List ops (AC-10.2): `insert` and `move` need a position.
+    expect(
+      patchCvSchema.safeParse({ baseVersion: 1, ops: [{ op: 'remove', path: 'skills' }] }).success,
+    ).toBe(true);
+    expect(
+      patchCvSchema.safeParse({ baseVersion: 1, ops: [{ op: 'move', path: 'skills' }] }).success,
+    ).toBe(false);
+    expect(
+      patchCvSchema.safeParse({
+        baseVersion: 1,
+        ops: [{ op: 'insert', path: 'skills', index: -1, value: {} }],
+      }).success,
     ).toBe(false);
     expect(
       patchCvSchema.safeParse({ baseVersion: 1, ops: [{ ...op, path: 'nope' }] }).success,

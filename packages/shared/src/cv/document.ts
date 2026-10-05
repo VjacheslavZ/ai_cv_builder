@@ -13,6 +13,8 @@ export const BULLET_MAX_LENGTH = 500;
 export const SUMMARY_MAX_LENGTH = 2_000;
 export const SHORT_TEXT_MAX_LENGTH = 200;
 export const URL_MAX_LENGTH = 2_048;
+/** How many removed items a CV remembers (oldest dropped first). */
+export const REMOVED_MAX = 200;
 
 const id = z.uuid();
 const shortText = z.string().trim().max(SHORT_TEXT_MAX_LENGTH);
@@ -92,6 +94,14 @@ export const cvDocumentSchema = z.object({
   skills: z.array(cvSkillSchema).max(100),
   /** Places edited by hand; the AI never changes them (AC-9.3). Field or list/section paths. */
   editedPaths: z.array(fieldPathSchema).max(1_000).default([]),
+  /**
+   * Items the user removed (AC-10.2), by list and normalized text (`removedKey`): an AI rewrite
+   * never adds them back. Optional: documents saved before Phase 7 have none.
+   */
+  removed: z
+    .array(z.object({ list: fieldPathSchema, key: z.string().max(1_000) }))
+    .max(REMOVED_MAX)
+    .optional(),
 });
 
 export type CvDocument = z.infer<typeof cvDocumentSchema>;
@@ -101,6 +111,7 @@ export type CvExperience = z.infer<typeof cvExperienceSchema>;
 export type CvBullet = z.infer<typeof cvBulletSchema>;
 export type CvEducation = z.infer<typeof cvEducationSchema>;
 export type CvSkill = z.infer<typeof cvSkillSchema>;
+export type CvRemovedItem = NonNullable<CvDocument['removed']>[number];
 
 export function emptyCvDocument(): CvDocument {
   return {

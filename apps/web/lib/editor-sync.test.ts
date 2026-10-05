@@ -47,9 +47,26 @@ describe('editor sync (AC-10.4)', () => {
   it('keeps unsaved local values on top of the server state', () => {
     const local = doc('my unsaved text', 'b', 'local');
     const server = doc('server text', 'b', 'server');
-    const next = overlayUnsaved(server, local, [`experience.${A}.bullets.${X}`]);
+    const next = overlayUnsaved(server, local, [
+      { op: 'set', path: `experience.${A}.bullets.${X}`, value: 'my unsa' },
+    ]);
     expect(next.experience[0]!.bullets[0]!.text).toBe('my unsaved text');
     expect(next.summary).toBe('server');
+  });
+
+  it('replays unsaved list ops in order, skipping ones that no longer fit (AC-10.2)', () => {
+    const NEW = 'a02b1c33-4d5e-4f6a-9b7c-8d9e0f1a2b3c';
+    const local = doc('a', 'b', 'local');
+    local.experience[0]!.bullets.push({ id: NEW, text: 'typed' });
+    const server = doc('a', 'b', 'server');
+    const next = overlayUnsaved(server, local, [
+      { op: 'insert', path: `experience.${A}.bullets`, index: 1, value: { id: NEW, text: '' } },
+      { op: 'set', path: `experience.${A}.bullets.${NEW}`, value: 'typ' },
+      { op: 'move', path: `experience.${B}`, index: 0 },
+      { op: 'remove', path: 'skills.9f1a0b22-3c4d-4e5f-8a6b-7c8d9e0f1a2b' },
+    ]);
+    expect(next.experience.map((e) => e.id)).toEqual([B, A]);
+    expect(next.experience[1]!.bullets.at(-1)).toEqual({ id: NEW, text: 'typed' });
   });
 
   it('knows the section of a path', () => {

@@ -61,7 +61,7 @@ export function useEditorSync(detail: CvDetailDto & { document: CvDocument }) {
       const next = overlayUnsaved(
         takeScope(local, fresh.document, scope),
         local,
-        autosave.unsavedPaths(),
+        autosave.unsavedOps(),
       );
       form.setValue(section, next[section] as never, { shouldDirty: false });
       autosave.rebase({ version: fresh.version, document: fresh.document }, scope);
@@ -112,7 +112,7 @@ export function useEditorSync(detail: CvDetailDto & { document: CvDocument }) {
         const { conflict } = autosave.getState();
         if (!conflict || conflictVersion.current === conflict.version) return;
         conflictVersion.current = conflict.version;
-        form.reset(overlayUnsaved(conflict.document, form.getValues(), autosave.unsavedPaths()));
+        form.reset(overlayUnsaved(conflict.document, form.getValues(), autosave.unsavedOps()));
       }),
     [autosave, form],
   );
