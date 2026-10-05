@@ -2,7 +2,7 @@
 
 Status: v1.2.
 
-**Changes in v1.2**: list items are reordered by a drag handle instead of ↑/↓ buttons (AC-10.2); live PDF preview on desktop, next to the editor (AC-11.7), with a three-column editor layout and the questions in a side drawer (NFR-M2); a per-user preview render limit (NFR-S9).
+**Changes in v1.2**: list items are reordered by a drag handle instead of ↑/↓ buttons (AC-10.2).
 
 **Changes in v1.1** (review against the development plans): automatic BullMQ lock renewal instead of a long `lockDuration` (AC-5.7, NFR-R4); one sweeper rule (AC-5.7a, §6.1); fencing by `aiRevision` instead of `version` (AC-9.7); AI updates in another section are not a user-visible conflict (AC-10.4); client IP behind the Next.js proxy (AC-1.6); id-based merge of AI section rewrites (AC-9.3); structured dates and field paths (§0, AC-8.1); atom rules for names in free text, PDF hyphenation, localized month names (AC-7.2, AC-7.3); question lifecycle (AC-8.6); simple-field answers (AC-9.2); answer rate limit and per-job LLM call budget (NFR-S9, NFR-R3); temporary PDF retention and extraction warnings (§1, AC-4.3); Regenerate is P1 and keeps the previous CV until the new one is ready (FR-13); Playwright mobile smoke test is P0 (§5.4).
 
@@ -41,7 +41,7 @@ Status: v1.2.
 | 12 | Saving | Autosave + optimistic locking: a version number on every request, `409` on conflict. |
 | 13 | Stack | Next.js (UI only) + NestJS on **Express** (REST API) + a separate worker process. TypeScript. |
 | 14 | PDF rendering | Server-side, from JSON (`@react-pdf/renderer` or `pdfkit`). A4, selectable text. |
-| 15 | Mobile | The whole flow works from 360px wide. No PDF preview on phones; from 1024 px wide the editor shows a live preview of the saved PDF (AC-11.7). |
+| 15 | Mobile | The whole flow works from 360px wide. No PDF preview on phones. |
 | 16 | UI kit | Tailwind CSS + shadcn/ui initialized on the **Base UI** base (`shadcn init --base base`). No Radix: one primitives layer. |
 | 17 | Form validation | react-hook-form + Zod (`zodResolver`) with shadcn `Field` components. Zod schemas are shared between web and api. Base UI's built-in field validation is not used: react-hook-form is the only validation state, and errors are passed via `aria-invalid` and `FieldError`. |
 | 18 | Job queue | **BullMQ on Redis** for dispatch, retries, backoff, and stalled-job detection. Postgres keeps the job status the user sees. |
@@ -391,7 +391,7 @@ Priorities:
 - **When** the server processes it
 - **Then** it responds `400` and the CV is unchanged. Only `http(s):` and `mailto:` links are allowed
 
-### FR-11. PDF export — P0 (live preview — P1)
+### FR-11. PDF export — P0
 
 **AC-11.1 Format**
 - **Given** a CV in status `ready` (even with open questions)
@@ -422,14 +422,6 @@ Priorities:
 - **Given** iOS Safari or Android Chrome
 - **When** the user clicks "Download PDF"
 - **Then** the PDF opens in the built-in viewer or is saved (`Content-Disposition: attachment`, correct `Content-Type`)
-
-**AC-11.7 Live preview — P1**
-- **Given** the editor is open on a screen at least 1024 px wide
-- **When** the user edits a field, adds, removes, or moves an item, or an AI update lands
-- **Then** the preview column shows the PDF of the latest **saved** version, refreshed shortly after autosave settles (target: within 3 s of the save). It is the same server-side rendering as the download, shown in the browser's built-in PDF viewer (no client-side PDF libraries, NFR-M7)
-- The preview never waits on, or blocks, typing or saving; while a newer version is rendering, the previous one stays on screen
-- If a render fails or the preview limit is reached, the preview says so and keeps the last good version; "Download PDF" keeps working
-- Below 1024 px there is no preview and nothing is rendered for it
 
 ### FR-12. CV list and returning from any device — P0 (rename — P1)
 
@@ -522,7 +514,7 @@ Decided during clarification:
 | NFR-S6 | **Prompt injection.** The source is passed to the LLM inside explicit delimiters as data. The system prompt forbids following instructions from the source. Responses are accepted only via structured output. The main defense is the server-side grounding check, not the prompt. |
 | NFR-S7 | **LLM and user output is text only.** In the UI it is rendered with React escaping (no `dangerouslySetInnerHTML`). Only text goes into the PDF, no HTML or markup. Only `http(s)` and `mailto` links are allowed. |
 | NFR-S8 | **Secrets.** `ANTHROPIC_API_KEY` and the better-auth secret are available only to api and worker, never end up in the client bundle (no `NEXT_PUBLIC_` prefix), and are never logged. `.env` is in `.gitignore`; the repo has `.env.example`. |
-| NFR-S9 | **Rate limiting and key spend.** Auth endpoints are limited by better-auth's built-in rate limit (`rateLimit.storage: "secondary-storage"`, i.e. Redis). Generation (create, retry, regenerate) is limited to ≤ 2 active generation jobs per user (counted in Postgres, the source of truth) and ≤ 20 generations per hour (Redis counter), otherwise `429`. `apply_answer` jobs do not count toward these limits (they are serialized per CV, AC-9.7) but have their own limit of ≤ 60 per hour per user (Redis counter), otherwise `429`. Protects the key from being drained. PDF preview renders (AC-11.7) are limited per user per minute (Redis counter, configurable), otherwise `429`; the download is not limited by it. |
+| NFR-S9 | **Rate limiting and key spend.** Auth endpoints are limited by better-auth's built-in rate limit (`rateLimit.storage: "secondary-storage"`, i.e. Redis). Generation (create, retry, regenerate) is limited to ≤ 2 active generation jobs per user (counted in Postgres, the source of truth) and ≤ 20 generations per hour (Redis counter), otherwise `429`. `apply_answer` jobs do not count toward these limits (they are serialized per CV, AC-9.7) but have their own limit of ≤ 60 per hour per user (Redis counter), otherwise `429`. Protects the key from being drained. |
 | NFR-S10 | **Headers and errors.** Security headers via `helmet` (CSP, `X-Content-Type-Options`, `frame-ancestors 'none'`). The client receives generic errors with a code (`{ code, message }`), without stack traces or SQL (a global Nest exception filter). |
 | NFR-S11 | **Personal data.** A CV is PII. Deleting a CV physically erases related data. No CV content in logs. Only what the job needs is sent to Anthropic. |
 
@@ -531,7 +523,7 @@ Decided during clarification:
 | ID | Requirement |
 |---|---|
 | NFR-M1 | The whole flow (sign up → input → progress → questions → editing → PDF download) works at **360 px** wide and up, with no horizontal scrolling. Verified by a Playwright test at a 360×740 viewport (and iPhone SE 375×667). |
-| NFR-M2 | Mobile-first single-column layout. At ≥ 1024 px the editor page has three columns, left to right: the PDF preview (45%, AC-11.7), the editor (45%), and a narrow rail (10%) with the document status, "Download PDF", and a "Questions" button with the open-question counter that opens the questions panel as a side drawer over the preview (non-modal: the editor stays usable). On phones, questions are reachable via a tab or slide-out panel with an open-question counter. |
+| NFR-M2 | Mobile-first single-column layout. At ≥ 1024 px the editor and questions panel sit side by side. On phones, questions are reachable via a tab or slide-out panel with an open-question counter. |
 | NFR-M3 | Touch targets ≥ 44×44 px. Input font size ≥ 16 px so iOS does not zoom on focus. Correct `type`/`inputmode`/`autocomplete` (email, tel, url, current-password, new-password). |
 | NFR-M4 | File upload works via the native iOS and Android pickers (a hidden `<input type="file" accept="application/pdf">` opened by a Button, plus a drag-and-drop zone on desktop), with an alternative "Paste text" tab. |
 | NFR-M5 | Background resilience: on `visibilitychange` autosave fires immediately, and when the tab returns the client reconnects SSE or fetches the status (iOS drops background connections). |
@@ -603,8 +595,7 @@ GET    /api/cvs/:id/events              SSE: job stages, section updates, heartb
 GET    /api/jobs/:id                    fallback job status
 POST   /api/cvs/:id/questions/:qid/answer   {text} → 202 {jobId} | 200 (simple fields)
 POST   /api/cvs/:id/questions/:qid/dismiss
-GET    /api/cvs/:id/pdf                 application/pdf, A4 (attachment)
-GET    /api/cvs/:id/pdf/preview         application/pdf, inline, may be framed by the web origin (P1)
+GET    /api/cvs/:id/pdf                 application/pdf, A4
 GET    /health, /ready                  /ready checks Postgres and Redis
 ```
 

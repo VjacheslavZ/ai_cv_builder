@@ -90,9 +90,13 @@ export function CvEditor({ detail }: { detail: CvDetailDto & { document: CvDocum
           >
             <SortableLists>
               <ContactEditor />
+              <hr className="border-black" />
               <SummaryEditor />
+              <hr className="border-black" />
               <ExperienceEditor />
+              <hr className="border-black" />
               <EducationEditor />
+              <hr className="border-black" />
               <SkillsEditor />
             </SortableLists>
           </form>

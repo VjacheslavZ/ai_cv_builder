@@ -95,20 +95,4 @@ describe('apiFetch', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('slow down', { status: 429 })));
     await expect(apiFetch('/api/cvs')).rejects.toMatchObject({ code: 'RATE_LIMITED' });
   });
-
-  it('returns a blob for a binary body, and still reads errors as JSON', async () => {
-    const pdf = new Response(new Uint8Array([37, 80, 68, 70]), {
-      status: 200,
-      headers: { 'Content-Type': 'application/pdf' },
-    });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(pdf));
-    const blob = await apiFetch<Blob>('/api/cvs/1/pdf/preview', { responseType: 'blob' });
-    expect(blob.type).toBe('application/pdf');
-    expect(blob.size).toBe(4);
-
-    respond(429, { code: 'RATE_LIMITED', message: 'Paused' });
-    await expect(
-      apiFetch('/api/cvs/1/pdf/preview', { responseType: 'blob' }),
-    ).rejects.toMatchObject({ status: 429, code: 'RATE_LIMITED' });
-  });
 });

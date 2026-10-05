@@ -2,18 +2,10 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { extractText, getDocumentProxy } from 'unpdf';
 
-/**
- * The PDF as bytes (supertest buffers only text bodies by default): the download, or with
- * `preview` the live preview (AC-11.7).
- */
-export function getPdf(
-  app: NestExpressApplication,
-  cvId: string,
-  cookie: string,
-  { preview = false } = {},
-) {
+/** The PDF as bytes (supertest buffers only text bodies by default). */
+export function getPdf(app: NestExpressApplication, cvId: string, cookie: string) {
   return request(app.getHttpServer())
-    .get(`/api/cvs/${cvId}/pdf${preview ? '/preview' : ''}`)
+    .get(`/api/cvs/${cvId}/pdf`)
     .set('Cookie', cookie)
     .buffer(true)
     .parse((res, done) => {

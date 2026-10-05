@@ -129,27 +129,6 @@ export class CvsController {
     });
   }
 
-  /**
-   * AC-11.7: the same PDF for the editor's live preview, `inline`. The only response the web
-   * origin may frame: these headers replace helmet's `frame-ancestors 'none'` / `DENY` for this
-   * route (`next.config.ts` leaves the path out of its own `'none'`).
-   */
-  @Get(':id/pdf/preview')
-  @Header('Cache-Control', 'no-store')
-  @Header('Content-Security-Policy', "frame-ancestors 'self'")
-  @Header('X-Frame-Options', 'SAMEORIGIN')
-  async pdfPreview(
-    @CurrentUser() user: AuthUser,
-    @UuidParam('id') id: string,
-  ): Promise<StreamableFile> {
-    const bytes = await this.exporter.preview(id, user.id);
-    return new StreamableFile(bytes, {
-      type: 'application/pdf',
-      disposition: 'inline',
-      length: bytes.length,
-    });
-  }
-
   /** AC-5.6: `202 { cvId, jobId }`, a new generation of a failed CV on its saved source. */
   @Post(':id/retry')
   @HttpCode(HttpStatus.ACCEPTED)
