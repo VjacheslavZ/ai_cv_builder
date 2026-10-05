@@ -99,11 +99,14 @@ export class CvWorker implements OnApplicationBootstrap, BeforeApplicationShutdo
     const timedOut = new Promise<'timeout'>((resolve) => {
       timer = setTimeout(() => resolve('timeout'), this.config.timeouts.workerShutdownMs);
     });
-    const result = await Promise.race([worker.close(), timedOut]);
+    const closing = worker.close().catch(() => undefined);
+    const result = await Promise.race([closing, timedOut]);
     clearTimeout(timer);
     if (result === 'timeout') {
+      // Stop waiting rather than `close(true)`: BullMQ returns the pending close for a second
+      // call, so a forced close would still wait for the job. The process exits after the
+      // shutdown hooks; the job's lock expires and stalled detection hands it to another worker.
       this.logger.warn('Shutdown timeout: leaving active jobs to stalled recovery');
-      await worker.close(true).catch(() => undefined);
     }
   }
 }

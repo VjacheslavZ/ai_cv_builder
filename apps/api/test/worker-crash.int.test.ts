@@ -51,26 +51,44 @@ describe('worker crash and shutdown (AC-5.7, NFR-R2, NFR-R10)', () => {
     await db?.drop();
   });
 
-  it('recovers a job from a worker killed mid-job', async () => {
-    child = spawn(process.execPath, [`${BUILD_DIR}/worker.js`], {
+  /** The compiled worker as a real process (`node dist/worker.js`, as in the image). */
+  function spawnWorker(extraEnv: Record<string, string>): ChildProcess {
+    return spawn(process.execPath, [`${BUILD_DIR}/worker.js`], {
       cwd: apiRoot,
       env: {
         PATH: process.env.PATH,
-        ...testEnv({ databaseUrl: db.url, env: { ...env, FAKE_LLM_DELAY_MS: '60000' } }),
+        ...testEnv({ databaseUrl: db.url, env: { ...env, ...extraEnv } }),
       },
       stdio: 'ignore',
     });
+  }
 
+  /** How the process ended: Nest re-raises SIGTERM after its shutdown hooks. */
+  function exited(proc: ChildProcess): Promise<string> {
+    const how = () => proc.signalCode ?? `exit ${proc.exitCode}`;
+    if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve(how());
+    return new Promise((resolve) => proc.once('exit', () => resolve(how())));
+  }
+
+  /** Creates a CV and waits until a worker is "waiting for the LLM" on it. */
+  async function jobInFlight() {
     const { cookie } = await signUp(app);
-    const { cvId, jobId } = await createCv(app, { cookie, text: SAMPLE_TEXT });
-    // The child picked the job up and is "waiting for the LLM".
+    const created = await createCv(app, { cookie, text: SAMPLE_TEXT });
     await waitFor(
-      async () => (await prisma.job.findUnique({ where: { id: jobId } }))?.stage === 'generating',
+      async () =>
+        (await prisma.job.findUnique({ where: { id: created.jobId } }))?.stage === 'generating',
       { timeoutMs: 20_000, what: 'the child worker to reach generating' },
     );
+    return created;
+  }
+
+  it('recovers a job from a worker killed mid-job', async () => {
+    child = spawnWorker({ FAKE_LLM_DELAY_MS: '60000' });
+
+    const { cvId, jobId } = await jobInFlight();
 
     child.kill('SIGKILL');
-    await new Promise((resolve) => child!.once('exit', resolve));
+    await exited(child);
 
     // Another worker notices the expired lock (stalled) and runs the job again.
     worker = await startTestWorker({ databaseUrl: db.url, env, llm: new FakeLlmClient() });
@@ -96,5 +114,32 @@ describe('worker crash and shutdown (AC-5.7, NFR-R2, NFR-R10)', () => {
     expect(await prisma.job.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({
       status: 'completed',
     });
+  });
+
+  it('SIGTERM mid-job: the job finishes, then the process exits (NFR-R10)', async () => {
+    child = spawnWorker({ FAKE_LLM_DELAY_MS: '1500' });
+    const { jobId } = await jobInFlight();
+
+    child.kill('SIGTERM');
+    expect(await exited(child)).toBe('SIGTERM');
+    expect(await prisma.job.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({
+      status: 'completed',
+    });
+  });
+
+  it('SIGTERM with a job longer than the shutdown timeout: exits, the job is recovered', async () => {
+    child = spawnWorker({ FAKE_LLM_DELAY_MS: '60000', WORKER_SHUTDOWN_TIMEOUT_MS: '1000' });
+    const { jobId } = await jobInFlight();
+
+    const stoppedAt = Date.now();
+    child.kill('SIGTERM');
+    expect(await exited(child)).toBe('SIGTERM');
+    // Within the shutdown timeout plus closing Prisma and Redis, far below compose's 30 s.
+    expect(Date.now() - stoppedAt).toBeLessThan(10_000);
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: jobId } })).status).toBe('running');
+
+    worker = await startTestWorker({ databaseUrl: db.url, env, llm: new FakeLlmClient() });
+    const job = await waitForJob(prisma, jobId, ['completed', 'failed'], 20_000);
+    expect(job.status).toBe('completed');
   });
 });

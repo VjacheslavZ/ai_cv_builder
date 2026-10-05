@@ -26,8 +26,9 @@ Covers SPEC §5.4 and every "How it is verified" column in SPEC §5. The test ha
 - **Containers:** Testcontainers starts Postgres and Redis once per run. The main compose file keeps Redis unpublished (NFR-S1); tests never depend on it.
 - **Isolation between test files:** migrate one template database once; each Vitest worker gets its own database created from it (`CREATE DATABASE … TEMPLATE`) and its own BullMQ prefix and Redis key prefix. Tables are truncated between tests in a file.
 - **App under test:** the Nest HTTP app is created in-process; the worker runs in-process (standalone context) for most tests.
-- **Crash tests:** the worker is spawned as a child process and killed with `SIGKILL` mid-job (AC-5.7, NFR-R2); Redis is stopped and started through the Testcontainers handle (NFR-R11, R12).
-- **Log capture:** a pino destination that collects lines, used by the PII test (NFR-R8).
+- **Crash tests:** the worker is spawned as a child process and killed with `SIGKILL` (AC-5.7, NFR-R2) or stopped with `SIGTERM` (NFR-R10) mid-job. Tests that stop or restart Redis use a Redis of their own (`startOwnRedis()`), reached through a local TCP proxy with a stable port: Docker frees a stopped container's host port and another file's container may get it.
+- **Loopback only:** `createTestApp` listens on `127.0.0.1:0` itself (`baseUrl(app)` for SSE). Left unbound, supertest listens on `::` per request, and on macOS another test process can bind `127.0.0.1` on the same port and answer those requests.
+- **Log capture:** `createTestApp` / `startTestWorker` take a `logDestination` (a stream that collects pino lines), used by the PII test (NFR-R8).
 
 ### `FakeLlmClient` scenarios
 Scripted per test, by queueing responses:

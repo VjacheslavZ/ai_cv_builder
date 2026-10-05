@@ -1,10 +1,9 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp } from './support/app.js';
+import { startOwnRedis, type OwnRedis } from './support/own-redis.js';
 import { createTestDatabase, type TestDatabase } from './support/database.js';
-import { REDIS_COMMAND } from './support/global-setup.js';
 
 describe('/ready', () => {
   let db: TestDatabase;
@@ -19,24 +18,23 @@ describe('/ready', () => {
 
   describe('Redis goes down', () => {
     // A dedicated Redis: stopping the shared one would break other test files.
-    let redis: StartedRedisContainer | undefined;
+    let redis: OwnRedis | undefined;
     let app: NestExpressApplication;
 
     beforeAll(async () => {
-      redis = await new RedisContainer('redis:7').withCommand(REDIS_COMMAND).start();
-      app = await createTestApp({ databaseUrl: db.url, redisUrl: redis.getConnectionUrl() });
+      redis = await startOwnRedis();
+      app = await createTestApp({ databaseUrl: db.url, redisUrl: redis.url });
     });
 
     afterAll(async () => {
       await app?.close();
-      await redis?.stop();
+      await redis?.close();
     });
 
     it('is 200 while Postgres and Redis are up, 503 once Redis stops', async () => {
       await request(app.getHttpServer()).get('/ready').expect(200, { status: 'ok' });
 
-      await redis!.stop();
-      redis = undefined;
+      redis!.stop();
 
       const res = await request(app.getHttpServer()).get('/ready');
       expect(res.status).toBe(503);
