@@ -20,6 +20,7 @@ import { EditorProvider } from './editor-context';
 import { EducationEditor, ExperienceEditor, SkillsEditor, SummaryEditor } from './list-editors';
 import { activeQuestions, QuestionsPanel } from './questions-panel';
 import { ConflictBanner, SaveStatus } from './save-status';
+import { SortableLists } from './sortable-lists';
 import { useEditorSync } from './use-editor-sync';
 
 type Tab = 'cv' | 'questions';
@@ -87,11 +88,13 @@ export function CvEditor({ detail }: { detail: CvDetailDto & { document: CvDocum
             onSubmit={(e) => e.preventDefault()}
             className={cn('flex min-w-0 flex-col gap-6', tab !== 'cv' && 'hidden lg:flex')}
           >
-            <ContactEditor />
-            <SummaryEditor />
-            <ExperienceEditor />
-            <EducationEditor />
-            <SkillsEditor />
+            <SortableLists>
+              <ContactEditor />
+              <SummaryEditor />
+              <ExperienceEditor />
+              <EducationEditor />
+              <SkillsEditor />
+            </SortableLists>
           </form>
           <div className={cn('lg:sticky lg:top-4', tab !== 'questions' && 'hidden lg:block')}>
             <QuestionsPanel

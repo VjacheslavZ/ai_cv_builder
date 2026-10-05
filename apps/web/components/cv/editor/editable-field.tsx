@@ -23,6 +23,8 @@ interface EditableFieldProps {
   autoComplete?: string;
   type?: string;
   className?: string;
+  /** A 44 px control inside the field, at its right edge (a list item's drag handle). */
+  endAdornment?: React.ReactNode;
 }
 
 /**
@@ -31,7 +33,7 @@ interface EditableFieldProps {
  * saved at once on blur. Read-only while the AI rewrites its part (AC-9.4).
  */
 export function EditableField(props: EditableFieldProps) {
-  const { name, path, label, hideLabel, multiline, className, ...inputProps } = props;
+  const { name, path, label, hideLabel, multiline, className, endAdornment, ...inputProps } = props;
   const { form, autosave, lockedScopes } = useEditor();
   const [error, setError] = useState<string | null>(null);
   const locked = !!lockingScope(lockedScopes, path);
@@ -69,11 +71,22 @@ export function EditableField(props: EditableFieldProps) {
       >
         {label}
       </label>
-      {multiline ? (
-        <Textarea {...shared} placeholder={inputProps.placeholder} className="min-h-11 text-base" />
-      ) : (
-        <Input {...shared} {...inputProps} className="h-11 text-base" />
-      )}
+      <div className="relative">
+        {multiline ? (
+          <Textarea
+            {...shared}
+            placeholder={inputProps.placeholder}
+            className={cn('min-h-11 text-base', endAdornment && 'pr-11')}
+          />
+        ) : (
+          <Input
+            {...shared}
+            {...inputProps}
+            className={cn('h-11 text-base', endAdornment && 'pr-11')}
+          />
+        )}
+        {endAdornment && <div className="absolute top-0 right-0">{endAdornment}</div>}
+      </div>
       {error && (
         <p id={errorId} className="text-xs text-destructive">
           {error}
