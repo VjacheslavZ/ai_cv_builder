@@ -31,9 +31,10 @@ _Skipped: not built in this phase._
 - [x] Tests: `apps/api/test/rename.int.test.ts`, a row in the isolation matrix, `renameCvSchema` unit tests.
 
 ## 4. Add / remove / reorder (AC-10.2)
-- [ ] Extend `patchCvSchema` with `insert`, `remove`, and `move` ops addressed by ids.
-- [ ] Web: "Add bullet / entry / skill", "Remove", and ↑/↓ buttons (no drag-and-drop), 44 px targets, `useFieldArray` `insert`/`remove`/`move` → autosave.
-- [ ] Test: ops apply in order; removing an entry resolves questions pointing to it.
+- [x] Extend `patchCvSchema` with `insert`, `remove`, and `move` ops addressed by ids (`packages/shared/src/cv/lists.ts`, `applyListOp`). Lists: `experience`, `education`, `skills`, `experience.<id>.bullets`; contact links are out of scope.
+- [x] Web: "Add achievement / job / education", a skill input with "Add", "Remove", and reordering by drag and drop with a 44 px handle (SPEC AC-10.2 changed from ↑/↓ buttons: too many buttons per item). `@dnd-kit/react`, one `DragDropProvider` per editor (`SortableLists`), each list its own `type`, so items never move between lists; touch starts after a 150 ms hold, the keyboard sensor stays on, no drop animation. Drop → `useFieldArray.move` + one `move` op (`useListEditor`). Removing a job or an education entry shows a toast with "Undo" (adds it back); bullets and skills go without one.
+- [x] Test: ops apply in order; removing an entry resolves questions pointing to it (`editing.int.test.ts`, `apply-ops.test.ts`, `lists.test.ts`, `autosave.test.ts`).
+- Decisions: an added or moved item becomes a manual edit (its fields join `editedPaths`), so the AI neither rewrites it nor moves it back. A removed item is remembered in `CvDocument.removed` (list + normalized text) and an AI merge drops new items that match it (exact match after normalization, so a reworded one can slip through); adding the same item again forgets it. Autosave queues ops in order: a field's newer value replaces its queued `set`, list ops are sent at once, a conflict replays the unsaved ops (`overlayUnsaved`).
 
 ## 5. Local buffer of unsaved edits (AC-10.5) — skipped
 _Skipped: not built in this phase._
