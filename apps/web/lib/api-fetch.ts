@@ -23,6 +23,8 @@ export interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
   json?: unknown;
   /** Sent as is (e.g. `FormData` for uploads); the browser sets the content type. */
   body?: BodyInit;
+  /** `blob` for a binary body (the PDF preview); errors are still read as JSON. */
+  responseType?: 'json' | 'blob';
 }
 
 const LOGIN_PATH = '/login';
@@ -56,9 +58,9 @@ async function readError(res: Response): Promise<ApiError> {
  * `401 UNAUTHORIZED`.
  */
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
-  const { json, headers, ...init } = options;
+  const { json, headers, responseType = 'json', ...init } = options;
   const finalHeaders = new Headers(headers);
-  finalHeaders.set('Accept', 'application/json');
+  finalHeaders.set('Accept', responseType === 'blob' ? '*/*' : 'application/json');
   if (json !== undefined) finalHeaders.set('Content-Type', 'application/json');
 
   let res: Response;
@@ -83,6 +85,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     throw new ApiRequestError(res.status, error);
   }
 
+  if (responseType === 'blob') return (await res.blob()) as T;
   if (res.status === 204 || res.headers.get('Content-Length') === '0') {
     return undefined as T;
   }

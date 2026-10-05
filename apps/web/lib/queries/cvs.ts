@@ -62,6 +62,11 @@ export function renameCv(id: string, title: string): Promise<RenameCvResponse> {
   return apiFetch<RenameCvResponse>(`/api/cvs/${id}/title`, { method: 'PATCH', json: { title } });
 }
 
+/** The live preview PDF (AC-11.7): the saved document, rendered by the server. */
+export function fetchPdfPreview(id: string, signal?: AbortSignal): Promise<Blob> {
+  return apiFetch<Blob>(`/api/cvs/${id}/pdf/preview`, { responseType: 'blob', signal });
+}
+
 export function deleteCv(id: string): Promise<void> {
   return apiFetch<void>(`/api/cvs/${id}`, { method: 'DELETE' });
 }
