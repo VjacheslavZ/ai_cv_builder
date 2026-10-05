@@ -1,20 +1,17 @@
 'use client';
 
-import { isFieldPathWithin, type CvDocument } from '@cv/shared';
-import { createContext, useContext } from 'react';
+import type { CvDocument } from '@cv/shared';
+import { createContext, useContext, useSyncExternalStore } from 'react';
 import type { UseFormReturn } from 'react-hook-form';
 
 import type { Autosave } from '@/lib/autosave';
-import type { QuestionMarks } from '@/lib/question-marks';
+import { isLocked, type EditorStatus, type EditorStatusStore } from '@/lib/editor-status';
 
+/** Stable for the editor's lifetime: a change of status never re-renders every consumer. */
 export interface EditorContextValue {
   form: UseFormReturn<CvDocument>;
   autosave: Autosave;
-  marks: QuestionMarks;
-  /** Entries or sections an `apply_answer` job is rewriting: read-only until it ends (AC-9.4). */
-  lockedScopes: string[];
-  /** Parts the AI just rewrote, highlighted for a moment (AC-9.1). */
-  flashed: string[];
+  status: EditorStatusStore;
 }
 
 const EditorContext = createContext<EditorContextValue | null>(null);
@@ -27,7 +24,19 @@ export function useEditor(): EditorContextValue {
   return value;
 }
 
-/** The scope rewriting `path`, if any: the field is read-only while it runs. */
-export function lockingScope(lockedScopes: string[], path: string): string | undefined {
-  return lockedScopes.find((scope) => isFieldPathWithin(path, scope));
+/**
+ * One slice of the editor's status; the component re-renders only when the slice changes.
+ * `select` must return a primitive (compared with `Object.is`).
+ */
+export function useEditorStatus<T extends string | boolean>(
+  select: (status: EditorStatus) => T,
+): T {
+  const { status } = useEditor();
+  const snapshot = () => select(status.get());
+  return useSyncExternalStore(status.subscribe, snapshot, snapshot);
+}
+
+/** The field at `path` is read-only while the AI rewrites its part (AC-9.4). */
+export function useLocked(path: string): boolean {
+  return useEditorStatus((s) => isLocked(s, path));
 }

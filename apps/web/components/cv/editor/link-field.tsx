@@ -4,14 +4,14 @@ import { fieldValueSchema } from '@cv/shared';
 import { useState } from 'react';
 
 import { Input } from '@/components/ui/input';
-import { lockingScope, useEditor } from './editor-context';
+import { useEditor, useLocked } from './editor-context';
 
 /** A link is one field (`contact.links.<id>`) with two inputs: saved when both are valid. */
 export function LinkField({ index, id }: { index: number; id: string }) {
-  const { form, autosave, lockedScopes } = useEditor();
+  const { form, autosave } = useEditor();
   const [error, setError] = useState<string | null>(null);
   const path = `contact.links.${id}`;
-  const locked = !!lockingScope(lockedScopes, path);
+  const locked = useLocked(path);
 
   const save = () => {
     const parsed = fieldValueSchema(path)?.safeParse(form.getValues(`contact.links.${index}`));

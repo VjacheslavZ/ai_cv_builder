@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  applyScopeFor,
   type AnswerResponse,
   type CvDetailDto,
   type CvDocument,
@@ -10,9 +9,9 @@ import {
 } from '@cv/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from 'cn';
-import { useState } from 'react';
+import { memo, useCallback, useLayoutEffect, useMemo, useState } from 'react';
 
-import { questionMarks } from '@/lib/question-marks';
+import { editorStatus, EditorStatusStore } from '@/lib/editor-status';
 import { cvQuery, cvsQuery } from '@/lib/queries/cvs';
 import { ContactEditor } from './contact-editor';
 import { DownloadPdfButton } from './download-pdf-button';
@@ -34,28 +33,45 @@ export function CvEditor({ detail }: { detail: CvDetailDto & { document: CvDocum
   const { form, autosave, flashed, refreshScope, discard } = useEditorSync(detail);
   const [tab, setTab] = useState<Tab>('cv');
   const open = detail.questions.filter((q) => q.status === 'open');
-  const lockedScopes = detail.questions
-    .filter((q) => q.status === 'applying')
-    .flatMap((q) => applyScopeFor(q.path) ?? []);
 
-  const setStatus = (question: QuestionDto, status: QuestionStatus) => {
-    queryClient.setQueryData(
-      cvQuery(detail.id).queryKey,
-      (d) =>
-        d && {
-          ...d,
-          questions: d.questions.map((q) => (q.id === question.id ? { ...q, status } : q)),
-        },
-    );
-    void queryClient.invalidateQueries({ queryKey: cvsQuery.queryKey, exact: true });
-  };
-  const onAnswered = (question: QuestionDto, result: AnswerResponse) => {
-    setStatus(question, result.status);
-    if (result.status === 'answered') void refreshScope(question.path);
-  };
+  // Fields subscribe to their own slice of the status (`useEditorStatus`), so the context value
+  // stays the same: a new `detail` after every autosave re-renders no field, and an answered
+  // question re-renders only the fields it touches. `set` ignores an equal status.
+  const nextStatus = editorStatus(detail.questions, flashed);
+  const [status] = useState(() => new EditorStatusStore(nextStatus));
+  useLayoutEffect(() => status.set(nextStatus));
+  const editor = useMemo(() => ({ form, autosave, status }), [form, autosave, status]);
+
+  // Stable, so a question card re-renders only when its own question changes.
+  const cvId = detail.id;
+  const setStatus = useCallback(
+    (question: QuestionDto, status: QuestionStatus) => {
+      queryClient.setQueryData(
+        cvQuery(cvId).queryKey,
+        (d) =>
+          d && {
+            ...d,
+            questions: d.questions.map((q) => (q.id === question.id ? { ...q, status } : q)),
+          },
+      );
+      void queryClient.invalidateQueries({ queryKey: cvsQuery.queryKey, exact: true });
+    },
+    [cvId, queryClient],
+  );
+  const onAnswered = useCallback(
+    (question: QuestionDto, result: AnswerResponse) => {
+      setStatus(question, result.status);
+      if (result.status === 'answered') void refreshScope(question.path);
+    },
+    [refreshScope, setStatus],
+  );
+  const onDismissed = useCallback(
+    (question: QuestionDto) => setStatus(question, 'dismissed'),
+    [setStatus],
+  );
 
   return (
-    <EditorProvider value={{ form, autosave, marks: questionMarks(open), lockedScopes, flashed }}>
+    <EditorProvider value={editor}>
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div
@@ -88,20 +104,14 @@ export function CvEditor({ detail }: { detail: CvDetailDto & { document: CvDocum
             onSubmit={(e) => e.preventDefault()}
             className={cn('flex min-w-0 flex-col gap-4', tab !== 'cv' && 'hidden lg:flex')}
           >
-            <SortableLists>
-              <ContactEditor />
-              <SummaryEditor />
-              <ExperienceEditor />
-              <EducationEditor />
-              <SkillsEditor />
-            </SortableLists>
+            <EditorSections />
           </form>
           <div className={cn('lg:sticky lg:top-4', tab !== 'questions' && 'hidden lg:block')}>
             <QuestionsPanel
               cvId={detail.id}
               questions={activeQuestions(detail.questions)}
               onAnswered={onAnswered}
-              onDismissed={(q) => setStatus(q, 'dismissed')}
+              onDismissed={onDismissed}
             />
           </div>
         </div>
@@ -109,3 +119,16 @@ export function CvEditor({ detail }: { detail: CvDetailDto & { document: CvDocum
     </EditorProvider>
   );
 }
+
+/** The form itself: re-rendered through the editor context only, never by `CvEditor`. */
+const EditorSections = memo(function EditorSections() {
+  return (
+    <SortableLists>
+      <ContactEditor />
+      <SummaryEditor />
+      <ExperienceEditor />
+      <EducationEditor />
+      <SkillsEditor />
+    </SortableLists>
+  );
+});

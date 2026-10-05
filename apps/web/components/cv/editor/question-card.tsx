@@ -9,7 +9,7 @@ import {
 } from '@cv/shared';
 import { useMutation } from '@tanstack/react-query';
 import { LoaderCircleIcon } from 'lucide-react';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -43,7 +43,12 @@ const errorText = (error: unknown) =>
     : 'Something went wrong. Try again.';
 
 /** One question: answer, skip, or retry a failed answer (AC-8.4, AC-8.5, AC-9.5). */
-export function QuestionCard({ cvId, question, onAnswered, onDismissed }: QuestionCardProps) {
+export const QuestionCard = memo(function QuestionCard({
+  cvId,
+  question,
+  onAnswered,
+  onDismissed,
+}: QuestionCardProps) {
   const [answer, setAnswer] = useState('');
   const id = `answer-${question.id}`;
   const send = useMutation({
@@ -151,4 +156,4 @@ export function QuestionCard({ cvId, question, onAnswered, onDismissed }: Questi
       )}
     </li>
   );
-}
+});
