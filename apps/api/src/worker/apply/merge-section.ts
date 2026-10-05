@@ -1,6 +1,7 @@
 import {
   getField,
   isFieldPathWithin,
+  isRemovedItem,
   parseFieldPath,
   setField,
   type CvDocument,
@@ -22,7 +23,8 @@ export interface MergeSectionInput {
 /**
  * Puts an AI rewrite of one entry or section onto the current document (AC-9.3, NFR-R6):
  *
- * - items are matched by id; items without a known id are new;
+ * - items are matched by id; items without a known id are new, unless the user removed an
+ *   item like it (`CvDocument.removed`, AC-10.2): the AI never adds back what was deleted;
  * - an existing item the model returned but grounding removed keeps its current version;
  * - an item with a manual edit cannot be dropped or moved: it goes back to its original place;
  * - a scalar the rewrite left empty keeps its current value (a rewrite fills, it never clears);
@@ -36,18 +38,24 @@ export function mergeSection(input: MergeSectionInput): CvDocument {
   const doc = structuredClone(current);
   const edited = (path: string) => current.editedPaths.some((p) => isFieldPathWithin(p, path));
   const list = <T extends { id: string }>(
+    listPath: string,
     cur: T[],
     next: T[],
-    pathOf: (item: T) => string,
     mergeItem?: (cur: T, next: T) => T,
-  ) => mergeList(cur, next, { returnedIds, isPinned: (item) => edited(pathOf(item)), mergeItem });
+  ) =>
+    mergeList(cur, next, {
+      returnedIds,
+      isPinned: (item) => edited(`${listPath}.${item.id}`),
+      isRemoved: (item) => isRemovedItem(current, listPath, item),
+      mergeItem,
+    });
 
   const mergeExperience = (cur: CvExperience, next: CvExperience): CvExperience => ({
     id: cur.id,
     company: next.company || cur.company,
     title: next.title || cur.title,
     dates: next.dates ?? cur.dates,
-    bullets: list(cur.bullets, next.bullets, (b) => `experience.${cur.id}.bullets.${b.id}`),
+    bullets: list(`experience.${cur.id}.bullets`, cur.bullets, next.bullets),
   });
   const mergeEducation = (cur: CvEducation, next: CvEducation): CvEducation => ({
     id: cur.id,
@@ -65,21 +73,17 @@ export function mergeSection(input: MergeSectionInput): CvDocument {
       for (const field of ['name', 'email', 'phone', 'city'] as const) {
         doc.contact[field] = rewritten.contact[field] || current.contact[field];
       }
-      doc.contact.links = list(
-        current.contact.links,
-        rewritten.contact.links,
-        (l) => `contact.links.${l.id}`,
-      );
+      doc.contact.links = list('contact.links', current.contact.links, rewritten.contact.links);
       break;
     case 'skills':
-      doc.skills = list(current.skills, rewritten.skills, (s) => `skills.${s.id}`);
+      doc.skills = list('skills', current.skills, rewritten.skills);
       break;
     case 'experience': {
       if (!parts.entryId) {
         doc.experience = list(
+          'experience',
           current.experience,
           rewritten.experience,
-          (e) => `experience.${e.id}`,
           mergeExperience,
         );
         break;
@@ -91,12 +95,7 @@ export function mergeSection(input: MergeSectionInput): CvDocument {
     }
     case 'education': {
       if (!parts.entryId) {
-        doc.education = list(
-          current.education,
-          rewritten.education,
-          (e) => `education.${e.id}`,
-          mergeEducation,
-        );
+        doc.education = list('education', current.education, rewritten.education, mergeEducation);
         break;
       }
       const index = doc.education.findIndex((e) => e.id === parts.entryId);
@@ -117,6 +116,8 @@ interface MergeListOptions<T> {
   returnedIds: ReadonlySet<string>;
   /** Items that must stay where they are (they hold a manual edit). */
   isPinned: (item: T) => boolean;
+  /** New items the user already removed once: dropped. */
+  isRemoved?: (item: T) => boolean;
   mergeItem?: (cur: T, next: T) => T;
 }
 
@@ -124,7 +125,7 @@ interface MergeListOptions<T> {
 export function mergeList<T extends { id: string }>(
   current: T[],
   rewritten: T[],
-  { returnedIds, isPinned, mergeItem }: MergeListOptions<T>,
+  { returnedIds, isPinned, isRemoved, mergeItem }: MergeListOptions<T>,
 ): T[] {
   const byId = new Map(current.map((item) => [item.id, item]));
   const seen = new Set<string>();
@@ -132,6 +133,7 @@ export function mergeList<T extends { id: string }>(
     if (seen.has(item.id)) return [];
     seen.add(item.id);
     const cur = byId.get(item.id);
+    if (!cur && isRemoved?.(item)) return [];
     return [cur && mergeItem ? mergeItem(cur, item) : item];
   });
 

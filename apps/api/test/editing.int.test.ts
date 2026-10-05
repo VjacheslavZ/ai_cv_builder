@@ -7,6 +7,7 @@ import { PrismaService } from '../src/prisma/prisma.service.js';
 import { REDIS_GENERAL } from '../src/redis/redis.module.js';
 import { createTestApp, uniqueQueuePrefix } from './support/app.js';
 import { signUp } from './support/auth.js';
+import { waitForJob } from './support/cvs.js';
 import { createTestDatabase, type TestDatabase } from './support/database.js';
 import {
   answerQuestion,
@@ -192,6 +193,137 @@ describe('editing and questions', () => {
       expect(res.status).toBe(429);
       expect(res.body.code).toBe('RATE_LIMITED');
       expect(await prisma.job.count({ where: { cvId: cv.cvId, type: 'apply_answer' } })).toBe(0);
+    });
+  });
+
+  describe('list ops (AC-10.2)', () => {
+    const NEW_ENTRY = 'a02b1c33-4d5e-4f6a-9b7c-8d9e0f1a2b3c';
+    const NEW_BULLET = 'b13c2d44-5e6f-4a7b-8c8d-9e0f1a2b3c4d';
+
+    it('applies insert, set, and move in order, as one version', async () => {
+      const cv = await readyCv(app, prisma, llm, cookie);
+      const res = await patchCv(app, cv.cvId, cookie, {
+        baseVersion: cv.version,
+        ops: [
+          {
+            op: 'insert',
+            path: 'experience',
+            index: 1,
+            value: { id: NEW_ENTRY, company: '', title: '', dates: null, bullets: [] },
+          },
+          { op: 'set', path: `experience.${NEW_ENTRY}.company`, value: 'Globex' },
+          {
+            op: 'insert',
+            path: `experience.${NEW_ENTRY}.bullets`,
+            index: 0,
+            value: { id: NEW_BULLET, text: 'Ran on-call' },
+          },
+          { op: 'move', path: `experience.${NEW_ENTRY}`, index: 0 },
+        ],
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.body.version).toBe(cv.version + 1);
+
+      const doc = (await getDetail(app, cv.cvId, cookie)).document!;
+      expect(doc.experience.map((e) => e.id)).toEqual([NEW_ENTRY, cv.entryId]);
+      expect(doc.experience[0]).toMatchObject({
+        company: 'Globex',
+        bullets: [{ id: NEW_BULLET, text: 'Ran on-call' }],
+      });
+      expect(doc.editedPaths).toEqual(
+        expect.arrayContaining([
+          `experience.${NEW_ENTRY}.company`,
+          `experience.${NEW_ENTRY}.bullets.${NEW_BULLET}`,
+        ]),
+      );
+    });
+
+    it('removing an entry resolves the questions pointing into it', async () => {
+      const cv = await readyCv(app, prisma, llm, cookie);
+      const question = cv.question(`experience.${cv.entryId}.bullets`);
+      const res = await patchCv(app, cv.cvId, cookie, {
+        baseVersion: cv.version,
+        ops: [{ op: 'remove', path: `experience.${cv.entryId}` }],
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.body.resolvedQuestionIds).toEqual([question.id]);
+
+      const detail = await getDetail(app, cv.cvId, cookie);
+      expect(detail.document!.experience).toEqual([]);
+      expect(detail.questions.find((q) => q.id === question.id)?.status).toBe('resolved');
+      expect(detail.questions.find((q) => q.path === 'contact.phone')?.status).toBe('open');
+    });
+
+    it('one bad op rejects the whole PATCH and changes nothing', async () => {
+      const cv = await readyCv(app, prisma, llm, cookie);
+      const res = await patchCv(app, cv.cvId, cookie, {
+        baseVersion: cv.version,
+        ops: [
+          { op: 'remove', path: `experience.${cv.entryId}.bullets.${cv.bulletIds[0]}` },
+          { op: 'move', path: `experience.${cv.entryId}.bullets.${cv.bulletIds[1]}`, index: 5 },
+        ],
+      });
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        fields: { 'ops.1.index': expect.any(String) },
+      });
+      expect((await getDetail(app, cv.cvId, cookie)).document).toEqual(cv.doc);
+    });
+
+    it('an AI rewrite never adds back a bullet the user removed', async () => {
+      const cv = await readyCv(app, prisma, llm, cookie);
+      const removed = await patchCv(app, cv.cvId, cookie, {
+        baseVersion: cv.version,
+        ops: [{ op: 'remove', path: `experience.${cv.entryId}.bullets.${cv.bulletIds[1]}` }],
+      });
+      expect(removed.status).toBe(200);
+      // The model brings the removed bullet back as a new one, next to the answer.
+      llm.valid({
+        contact: { name: null, email: null, phone: null, city: null, links: [] },
+        summary: '',
+        experience: [
+          {
+            id: cv.entryId,
+            company: 'Acme Corp',
+            title: 'Software engineer',
+            start: '2020-01',
+            end: 'present',
+            evidence: ['Acme Corp - Software engineer, Jan 2020 - present'],
+            bullets: [
+              {
+                id: cv.bulletIds[0],
+                text: 'Cut API latency from 800 ms to 200 ms by adding Redis caching',
+                evidence: ['Cut API latency from 800 ms to 200 ms by adding Redis caching.'],
+              },
+              { text: 'Mentored 3 junior engineers', evidence: ['Mentored 3 junior engineers.'] },
+              { text: 'Shipped billing.', evidence: ['Shipped billing.'] },
+            ],
+          },
+        ],
+        education: [],
+        skills: [],
+        questions: [],
+      });
+      const q = await prisma.question.create({
+        data: {
+          cvId: cv.cvId,
+          path: `experience.${cv.entryId}.bullets`,
+          type: 'vague',
+          priority: 22,
+          text: 'More?',
+        },
+      });
+      const answered = await answerQuestion(app, cv.cvId, q.id, cookie, 'Shipped billing.');
+      expect(answered.status, JSON.stringify(answered.body)).toBe(202);
+      const job = await waitForJob(prisma, answered.body.jobId as string, ['completed', 'failed']);
+      expect(job.status).toBe('completed');
+
+      const bullets = (await getDetail(app, cv.cvId, cookie)).document!.experience[0]!.bullets;
+      expect(bullets.map((b) => b.text)).toEqual([
+        'Cut API latency from 800 ms to 200 ms by adding Redis caching',
+        'Shipped billing.',
+      ]);
     });
   });
 });

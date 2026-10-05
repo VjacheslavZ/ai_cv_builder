@@ -135,4 +135,35 @@ describe('mergeSection (AC-9.3, NFR-R6)', () => {
     });
     expect(result.experience.map((e) => e.id)).toEqual([ACME, INITECH]);
   });
+
+  it('never adds back an item the user removed (AC-10.2)', () => {
+    const cur = current();
+    cur.removed = [
+      { list: `experience.${ACME}.bullets`, key: 'mentored 3 juniors' },
+      { list: 'experience', key: 'globex intern' },
+    ];
+    const bullets = merge(
+      cur,
+      rewrite([bullet(1), { id: NEW, text: 'Mentored 3 juniors.' }, bullet(3)]),
+      [b(1), b(3)],
+    ).experience[0]!.bullets;
+    expect(bullets.map((x) => x.id)).not.toContain(NEW);
+
+    const globex = { id: NEW, company: 'Globex', title: 'Intern', dates: null, bullets: [] };
+    const section = mergeSection({
+      current: cur,
+      scope: 'experience',
+      rewritten: { ...emptyCvDocument(), experience: [...cur.experience, globex] },
+      returnedIds: new Set([ACME, INITECH]),
+    });
+    expect(section.experience.map((e) => e.id)).toEqual([ACME, INITECH]);
+    expect(section.removed).toEqual(cur.removed);
+  });
+
+  it('keeps a removed-looking item that already exists (only new items are filtered)', () => {
+    const cur = current();
+    cur.removed = [{ list: `experience.${ACME}.bullets`, key: 'bullet 1' }];
+    const result = merge(cur, rewrite([bullet(1), bullet(3)]), [b(1), b(3)]);
+    expect(result.experience[0]!.bullets.map((x) => x.id)).toContain(b(1));
+  });
 });
