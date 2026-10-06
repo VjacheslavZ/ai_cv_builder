@@ -8,7 +8,6 @@ import { AddItemButton, RemoveItemButton } from './item-controls';
 import { SectionFrame } from './section-frame';
 import { SortableItem } from './sortable-item';
 import { useListEditor } from './use-list-editor';
-import { useEffect } from 'react';
 
 export { SkillsEditor } from './skills-editor';
 
