@@ -54,7 +54,9 @@ flowchart LR
   worker -- "generate CV,<br/>apply answer" --> llm["Anthropic API"]
   worker -- "check facts" --> grounding["grounding<br/>deterministic check"]
 ```
+
 ### why chosen
+
 - TS - one language in all pars application, zod as a source schema, prisma, nest, react are oriented for working with TS
 - NestJS - app architecture, good for big projects, TS - first, modules, rich infrastructure
 - Next.js - SSR, routing system, performance, code splitting
@@ -85,6 +87,7 @@ flowchart LR
 - Briefly generated code checking
 
 ## How I used AI tools
+
 - CLAUDE.md contains rules for the agent, how to run project, invariants
 - I wrote a specification first, then split into phases.
 - the work went phase by phase. I checked every phase. Manual testing.
