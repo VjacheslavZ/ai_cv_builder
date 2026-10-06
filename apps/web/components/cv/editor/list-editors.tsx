@@ -11,7 +11,7 @@ import { useListEditor } from './use-list-editor';
 
 export { SkillsEditor } from './skills-editor';
 
-const entryClass = 'border-t pt-3 first:border-t-0 first:pt-0';
+const entryClass = 'border-t border-foreground pt-3 first:border-t-0 first:pt-0';
 
 export function SummaryEditor() {
   return (

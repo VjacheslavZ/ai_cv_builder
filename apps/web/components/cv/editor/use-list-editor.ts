@@ -4,8 +4,9 @@ import type { CvDocument } from '@cv/shared';
 import { useFieldArray, type FieldArray, type FieldArrayPath } from 'react-hook-form';
 
 import { toast } from '@/components/ui/toast';
+import { isLockedIn, locksAround } from '@/lib/editor-status';
 import { restoreIndex } from '@/lib/list-items';
-import { lockingScope, useEditor } from './editor-context';
+import { useEditor, useEditorStatus } from './editor-context';
 
 type ListName = FieldArrayPath<CvDocument>;
 type ListItem<N extends ListName> = FieldArray<CvDocument, N> & { id: string };
@@ -18,7 +19,8 @@ const UNDO_MS = 8_000;
  * With `undoLabel`, a removal shows a toast with "Undo", which adds the item back.
  */
 export function useListEditor<N extends ListName>(name: N, path: string, undoLabel?: string) {
-  const { form, autosave, lockedScopes } = useEditor();
+  const { form, autosave } = useEditor();
+  const locks = useEditorStatus((s) => locksAround(s, path));
   const array = useFieldArray({ control: form.control, name, keyName: 'key' });
   const items = array.fields as unknown as (ListItem<N> & { key: string })[];
 
@@ -58,6 +60,6 @@ export function useListEditor<N extends ListName>(name: N, path: string, undoLab
       autosave.move(`${path}.${id}`, to);
     },
     /** The AI is rewriting the list (or the item): no structural changes until it is done. */
-    locked: (itemId?: string) => !!lockingScope(lockedScopes, itemId ? `${path}.${itemId}` : path),
+    locked: (itemId?: string) => isLockedIn(locks, itemId ? `${path}.${itemId}` : path),
   };
 }

@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { FakeLlmClient } from '../src/llm/fake-llm-client.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp, uniqueQueuePrefix } from './support/app.js';
-import { signUp } from './support/auth.js';
+import { NAMES, signUp } from './support/auth.js';
 import { apiGet, createCv, waitForJob } from './support/cvs.js';
 import { createTestDatabase, type TestDatabase } from './support/database.js';
 import { startTestWorker } from './support/worker.js';
@@ -67,6 +67,7 @@ describe('AI generation and grounding (fake LLM)', () => {
   let llm: FakeLlmClient;
   let prisma: PrismaService;
   let cookie: string;
+  let email: string;
 
   beforeAll(async () => {
     db = await createTestDatabase();
@@ -88,7 +89,7 @@ describe('AI generation and grounding (fake LLM)', () => {
   });
 
   beforeEach(async () => {
-    ({ cookie } = await signUp(app));
+    ({ cookie, email } = await signUp(app));
     llm.calls.length = 0;
   });
 
@@ -117,6 +118,35 @@ describe('AI generation and grounding (fake LLM)', () => {
     expect(detail.questions.every((q) => q.status === 'open')).toBe(true);
     const priorities = detail.questions.map((q) => q.priority);
     expect([...priorities].sort((a, b) => a - b)).toEqual(priorities);
+  });
+
+  it('takes the name and email the sources lack from the account', async () => {
+    const out = honestOutput();
+    out.contact.name = null;
+    out.contact.email = null;
+    out.questions.push(
+      { path: 'contact.name', type: 'missing', text: 'What is your full name?' },
+      { path: 'contact.email', type: 'missing', text: 'What email should employers use?' },
+    );
+    llm.valid(out);
+    const { job, detail } = await generate();
+    expect(job.status).toBe('completed');
+    expect(detail.document!.contact).toMatchObject({
+      name: `${NAMES.firstName} ${NAMES.lastName}`,
+      email,
+    });
+    expect(detail.document!.editedPaths).toEqual([]);
+    const paths = detail.questions.map((q) => q.path);
+    expect(paths).not.toContain('contact.name');
+    expect(paths).not.toContain('contact.email');
+  });
+
+  it('keeps the name and email from the sources over the account', async () => {
+    llm.valid(honestOutput());
+    const { detail } = await generate();
+    // The source gives ada@example.com; the account's email is a random other one.
+    expect(detail.document!.contact.email).toBe('ada@example.com');
+    expect(email).not.toBe('ada@example.com');
   });
 
   it('removes two fabricated facts, asks two unverified questions, writes a report (AC-7.5)', async () => {

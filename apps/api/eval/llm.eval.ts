@@ -17,7 +17,8 @@ import { readBaseline, rubricScores, saveBaseline, writeReport, type CaseRun } f
 // pairwise comparison with the frozen baseline in eval/out/baseline/. Judge verdicts are
 // signals for the report, not pass/fail: see the calibration test at the bottom.
 //
-//   EVAL_JUDGE_MODEL     judge model (default claude-haiku-4-5; not the generator's model)
+//   EVAL_JUDGE_MODEL     judge model (default claude-opus-5-5; not the generator's model: Haiku 4.5
+//                        failed the calibration below on plainly faithful bullets)
 //   EVAL_JUDGE=false     skip the judge (deterministic checks only)
 //   EVAL_REPEATS=3       run every case N times: the generator and the judge are not deterministic
 //   EVAL_SAVE_BASELINE=true  freeze this run's drafts as the new baseline
@@ -33,7 +34,7 @@ const config = loadConfig({
   ...process.env,
 });
 const apiKey = process.env.ANTHROPIC_API_KEY;
-const judgeModel = process.env.EVAL_JUDGE_MODEL ?? 'claude-haiku-4-5';
+const judgeModel = process.env.EVAL_JUDGE_MODEL ?? 'claude-opus-5-5';
 const judgeOn = process.env.EVAL_JUDGE !== 'false';
 const repeats = Number(process.env.EVAL_REPEATS ?? 1);
 const saveAsBaseline = process.env.EVAL_SAVE_BASELINE === 'true';

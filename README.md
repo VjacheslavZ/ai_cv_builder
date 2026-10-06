@@ -1,152 +1,95 @@
 # AI CV Builder
 
-Turns a PDF CV or free text plus a target role into a clean, role-targeted CV. English only: the input and the CV (no translation, no other languages).
-Every fact in the result is checked against what you provided: anything the AI cannot back up
-with your own words is removed and turned into a clarifying question. You can answer or skip
-questions, edit any field by hand (autosaved), and download an A4 PDF.
-
-Specification: [`docs/SPEC.md`](docs/SPEC.md). Development plan: [`docs/plans/`](docs/plans/README.md).
-
-## Quick start
-
-Requires Docker with Compose v2.
+## Run
 
 ```sh
-cp .env.example .env
-# set ANTHROPIC_API_KEY in .env
-docker compose up
+cp .env.example .env   # set ANTHROPIC_API_KEY
+docker compose up      # http://localhost:3000
 ```
 
-Open http://localhost:3000. The first start builds the images, installs dependencies, and
-applies database migrations; `docker compose ps` shows all services `healthy` once ready.
-
-`docker compose up` runs the app in **development mode** with hot reload (it merges
-`docker-compose.override.yml`). For the production images, without the override:
+## Tests
 
 ```sh
-docker compose -f docker-compose.yml up --build   # or: pnpm prod
+pnpm install
+pnpm test:unit   # no Docker
+pnpm test:int    # Testcontainers: Postgres and Redis of its own, needs Docker
 ```
 
-Redis GUI: http://localhost:5540 (RedisInsight, already connected as `ai-cv-builder`; accept its
-terms on first open). Published on localhost only; change the port with `REDISINSIGHT_PORT`.
+### LLM evaluation
 
-`ANTHROPIC_API_KEY` is the only required value. `BETTER_AUTH_SECRET` has a local-only default
-in `docker-compose.yml` (and outside `NODE_ENV=production` on the host); set your own in `.env`
-for anything beyond your machine.
+Runs 10 sample inputs through the production generation loop and grades the drafts with
+deterministic checks (a failed check fails the run), an LLM judge, and a blind comparison with
+a saved baseline. Needs `ANTHROPIC_API_KEY` in `.env`; no Docker.
 
-## Accounts and sessions
-
-Email and password via [better-auth](https://better-auth.com), served by the API at `/api/auth/*`
-through the web origin. Users and password hashes (scrypt) are in Postgres; sessions and auth
-rate-limit counters are only in Redis, so logout revokes a session immediately and a Redis wipe
-only logs everyone out. The session cookie is `httpOnly`, `SameSite=Lax`, and `Secure` unless
-`WEB_ORIGIN` is localhost. Every API route requires a session unless explicitly public, and a
-user only ever sees their own data (another user's id answers `404`). If Redis is down,
-authenticated calls answer `503` instead of guessing.
-
-`WEB_ORIGIN` (default `http://localhost:3000`) must be the URL users open: it is the only
-origin allowed to send mutating requests.
-
-## Creating a CV: jobs and limits
-
-**Input** (`/cvs/new`): a target role (1–100 characters) plus a PDF (≤ 10 MB, ≤ 10 pages, with a
-text layer), pasted text (≤ 20,000 characters), or both. A scanned PDF without text fails with a
-clear message, or, when text was pasted too, is skipped with a warning that stays on the CV.
-Generation is limited to 2 running jobs per user and 20 per hour.
-
-**Jobs.** Creating a CV writes the CV, its source text, the temporary PDF, and a `queued` job
-to Postgres in one transaction, then enqueues the job in BullMQ (queue `cv-jobs`) and answers
-`202` at once. The worker runs the stages `queued → extracting → generating → validating →
-completed` (or `failed`), and the progress page follows them live over SSE; reloading or
-opening the CV on another device shows the same job. Postgres holds the state you see; a
-sweeper in the worker re-enqueues jobs lost between Postgres and Redis, retries jobs whose
-worker crashed (BullMQ stalled detection), and fails anything still running 10 minutes after
-it was created (`JOB_TIMEOUT`). On `SIGTERM` (`docker compose stop`) the worker finishes its
-current job, up to 30 s.
-
-**AI generation and grounding.** The worker asks Claude (`ANTHROPIC_MODEL`, default
-`claude-sonnet-5-5`; `ANTHROPIC_EFFORT`, default `medium`) for an English, role-targeted draft in
-which every fact carries verbatim quotes from your source. A deterministic check then verifies
-each quote, every number, date, email, phone, URL, and name against the source, and every skill
-(its name must be inside its own quote; the model is asked to keep the source's spelling, so
-there is no profession-specific synonym list and it works for any field). Anything it cannot back up is removed and turned into
-a question; the target role is never treated as a fact, and instructions hidden in a PDF are
-ignored. The draft opens with up to 10 questions (contact > experience > education > skills),
-each marked in the CV. `GROUNDING_CHECK_CAPITALIZED=false` relaxes the strictest rule (capitalized
-words in bullets must appear in the source). Tests and the e2e stack use an offline fake
-(`LLM_PROVIDER=fake`); `pnpm eval:llm` runs a small quality set against the real API.
-
-**PDF retention.** The original PDF is not kept: its bytes sit in a temporary Postgres table
-until the worker extracts the text (then they are deleted in the same transaction), and are
-also deleted after a failed extraction or by the sweeper 24 h after upload at the latest.
-
-**Manual edits** are tracked as one `editedPaths` set of field paths on the CV document (for
-example `summary` or `experience.<id>.bullets.<id>`), not as a `userEdited` flag on every
-field: plain string fields stay plain, and the set moves with the document in every write.
-
-**Editing and answers.** Every field of the draft is editable and autosaves (about 1 s after you
-stop typing, on blur, and when the tab is hidden), showing Saving… / Saved. A question about a
-single value (email, phone, dates, a name's spelling) is written straight into the field; any
-other answer starts a job in which the AI rewrites only that entry or section, with your answer
-as a new source fact. The section says "Updating…" meanwhile, the rest stays editable, and your
-manual edits are never changed by the AI. Answers on one CV are applied one after another, at
-most `ANSWERS_PER_HOUR` per user. If the same CV was changed on another device, you see "This CV
-was changed elsewhere" and can re-apply your unsaved changes.
-
-**PDF export and Retry.** "Download PDF" first waits for autosave, then downloads an A4 PDF of
-the saved CV named `<Full_Name>_CV.pdf`, open questions or not: empty fields and sections are
-left out, text is selectable, and long CVs flow onto more pages. It is rendered on the server
-(`@react-pdf/renderer`, Noto Sans embedded) in a worker thread, at most 10 s
-(`PDF_RENDER_TIMEOUT_MS`). A failed generation can be retried from the progress page or the
-dashboard on the saved source, unless the PDF itself was the problem.
-
-## Monorepo layout
-
-```
-apps/
-  web/        Next.js (App Router) — UI only; proxies /api/* to the API
-  api/        NestJS on Express — REST API (src/main.ts) and worker (src/worker.ts)
-packages/
-  shared/     Zod schemas, types, error codes, field-path helpers used by web and api
-docs/         SPEC and phase plans
+```sh
+pnpm eval:llm
+EVAL_JUDGE=false pnpm eval:llm          # deterministic checks only
+EVAL_REPEATS=3 pnpm eval:llm            # every case 3 times
+EVAL_SAVE_BASELINE=true pnpm eval:llm   # save this run as the baseline (before a prompt change)
 ```
 
-## Development
+Reports: `apps/api/eval/out/`.
 
-Everything runs in Docker: `docker compose up` (or `pnpm dev`). The repo is bind-mounted into
-the containers, so edits apply without rebuilding images:
+## Architecture and main decisions
 
-- `web` runs `next dev`: components hot-reload in the browser.
-- `api` and `worker` run `tsc --watch` + `node --watch`: they restart a few seconds after a save.
-- `shared` rebuilds `packages/shared`; api and web pick up the change.
+Next.js (UI only) → NestJS REST API → Postgres; a separate worker process runs the LLM jobs from a
+BullMQ queue in Redis. Shared Zod contracts live in `packages/shared`.
 
-`node_modules` live in Docker volumes (Linux binaries), installed by the one-shot `deps`
-service on every `up`. After adding a dependency (`pnpm add …` on the host updates the
-lockfile), run `docker compose run --rm deps` and `docker compose restart api worker web`.
+- api: REST endpoints, auth (better-auth), autosave, PDF export.
+- worker: PDF text extraction, CV generation and answers via Claude, grounding; a sweeper re-enqueues lost jobs.
+- Postgres holds all data; **Redis** holds only sessions, the queue, and progress events.
 
-Database GUI (DataGrip, psql): Postgres is published on `127.0.0.1:${DEV_POSTGRES_PORT:-5432}`
-in development mode, database `cv`, user `cv`, password `cv`. Redis is not published; use
-RedisInsight.
+```mermaid
+flowchart LR
+  user([Browser]) --> web["web<br/>Next.js, UI only"]
+  web -- "/api/* rewrite<br/>REST + SSE" --> api["api<br/>NestJS"]
 
-Database changes: edit `apps/api/prisma/schema.prisma`, then
-`docker compose exec api pnpm --filter @cv/api db:migrate` (creates and applies a migration
-and regenerates the client) and `docker compose restart api worker`.
+  api -- "CVs, jobs, questions<br/>(source of truth)" --> pg[("Postgres")]
+  api -- "sessions, enqueue jobs" --> redis[("Redis")]
+  redis -- "job progress (Pub/Sub)" --> api
 
-Running the apps on the host instead (Node 24, pnpm 11): `pnpm install`, `pnpm infra:up`
-(Postgres and Redis on 127.0.0.1; set `DEV_POSTGRES_PORT` / `DEV_REDIS_PORT` and the matching
-`DATABASE_URL` / `REDIS_URL` in `.env` if the ports are taken), `pnpm --filter @cv/api db:deploy`,
-then `pnpm dev:host`. Stop the compose `web`, `api`, and `worker` first: they hold :3000.
+  redis -- "BullMQ jobs" --> worker["worker<br/>NestJS, same codebase"]
+  worker -- "progress events" --> redis
+  worker -- "read sources,<br/>write results" --> pg
+  worker -- "generate CV,<br/>apply answer" --> llm["Anthropic API"]
+  worker -- "check facts" --> grounding["grounding<br/>deterministic check"]
+```
 
-| Script                             | What it does                                        |
-| ---------------------------------- | --------------------------------------------------- |
-| `pnpm dev`                         | `docker compose up --build`: dev mode, hot reload   |
-| `pnpm prod`                        | Production images (`-f docker-compose.yml` only)    |
-| `pnpm dev:host`                    | Apps on the host in watch mode (needs `infra:up`)   |
-| `pnpm build`                       | Build every package                                 |
-| `pnpm typecheck`                   | `tsc` in every package                              |
-| `pnpm lint` / `pnpm format`        | ESLint / Prettier                                   |
-| `pnpm test`                        | Unit + integration tests                            |
-| `pnpm test:unit`                   | Unit tests only (no Docker needed)                  |
-| `pnpm test:int`                    | Integration tests (Testcontainers: needs Docker)    |
-| `pnpm infra:up` / `infra:down`     | Postgres, Redis, RedisInsight for host development  |
-| `pnpm --filter @cv/api db:migrate` | Create and apply a migration (`prisma migrate dev`) |
+### why chosen
+
+- TS - one language in all pars application, zod as a source schema, prisma, nest, react are oriented for working with TS
+- NestJS - app architecture, good for big projects, TS - first, modules, rich infrastructure
+- Next.js - SSR, routing system, performance, code splitting
+- PostgreSQL + Prisma - working with transactions, row locks, JSONb, prisma gives queries and migrations
+- Redis + BullMQ - move out long running operations from HTTP, and run they in queues
+
+## How the AI is kept from inventing facts
+
+- The model must attach an exact quote from the user's PDF or text to every fact.
+- Code checks that the quote is in the source and that every number, date, name, and skill of the fact is in the quote (`apps/api/src/grounding/`).
+- A fact that fails the check is removed and becomes a question to the user.
+- The user's answer becomes a new source; when the AI rewrites that part of the CV, the result is checked again.
+- Instructions to the AI hidden in a PDF are dropped, and an answer in the wrong format is
+  requested again.
+
+## What I simplified
+
+- Less eval tests
+- Didn't test on physical mobile devices just tested in Chrome.
+- Tested only in Chrome.
+- Didn't optimize build size.
+- Didn't optimize server performance.
+- Partially skipped form validation
+- Simple password strength check (just min length)
+- No AI-generated PDFs
+- Some columns in the table duplicate the same value and all time empty
+- Simple UI
+- Briefly generated code checking
+
+## How I used AI tools
+
+- CLAUDE.md contains rules for the agent, how to run project, invariants
+- I wrote a specification first, then split into phases.
+- the work went phase by phase. I checked every phase. Manual testing.
+- Setup project skills, part of skills used from my local config file such: commit-plan, context7-mcp
+- A few claude code sessions at the time, no custom subagents

@@ -4,7 +4,7 @@ import { fieldValueSchema, type CvDateRange, type CvDocument } from '@cv/shared'
 import { useState } from 'react';
 import { useController, type FieldPath } from 'react-hook-form';
 
-import { lockingScope, useEditor } from './editor-context';
+import { useEditor, useLocked } from './editor-context';
 import { fromDraft, MONTHS, toDraft, type DatesDraft } from '@/lib/dates-draft';
 
 interface DatesFieldProps {
@@ -21,13 +21,13 @@ const yearClass = `${selectClass} w-24`;
  * pair is a valid range (or empty); a half-typed year waits, and blur shows what is wrong.
  */
 export function DatesField({ name, path }: DatesFieldProps) {
-  const { form, autosave, lockedScopes } = useEditor();
+  const { form, autosave } = useEditor();
   const { field } = useController({ name, control: form.control });
   const value = field.value as CvDateRange | null;
   const [draft, setDraft] = useState<DatesDraft>(() => toDraft(value));
   const [seen, setSeen] = useState(value);
   const [error, setError] = useState<string | null>(null);
-  const locked = !!lockingScope(lockedScopes, path);
+  const locked = useLocked(path);
   const id = `field-${path.replaceAll('.', '-')}`;
 
   // The value changed from outside (an AI rewrite, a conflict reload): start from it.

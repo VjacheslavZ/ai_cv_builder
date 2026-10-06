@@ -9,13 +9,14 @@ import {
 } from '@cv/shared';
 import { useMutation } from '@tanstack/react-query';
 import { LoaderCircleIcon } from 'lucide-react';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiRequestError } from '@/lib/api-fetch';
 import { answerQuestion, dismissQuestion } from '@/lib/queries/editing';
 import { questionAnchorId } from '@/lib/question-marks';
+import { QuestionLocation } from './question-location';
 
 const TYPE_LABEL: Record<QuestionType, string> = {
   missing: 'Missing',
@@ -42,7 +43,12 @@ const errorText = (error: unknown) =>
     : 'Something went wrong. Try again.';
 
 /** One question: answer, skip, or retry a failed answer (AC-8.4, AC-8.5, AC-9.5). */
-export function QuestionCard({ cvId, question, onAnswered, onDismissed }: QuestionCardProps) {
+export const QuestionCard = memo(function QuestionCard({
+  cvId,
+  question,
+  onAnswered,
+  onDismissed,
+}: QuestionCardProps) {
   const [answer, setAnswer] = useState('');
   const id = `answer-${question.id}`;
   const send = useMutation({
@@ -60,12 +66,13 @@ export function QuestionCard({ cvId, question, onAnswered, onDismissed }: Questi
   const error = send.error ?? skip.error;
 
   return (
-    <li className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
+    <li className="flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm">
       <button
         type="button"
         onClick={() => show(question.path)}
         className="flex min-h-11 flex-col items-start gap-1 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
       >
+        <QuestionLocation path={question.path} />
         <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
           {TYPE_LABEL[question.type]}
         </span>
@@ -149,4 +156,4 @@ export function QuestionCard({ cvId, question, onAnswered, onDismissed }: Questi
       )}
     </li>
   );
-}
+});

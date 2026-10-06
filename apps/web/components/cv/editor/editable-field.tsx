@@ -7,7 +7,7 @@ import type { FieldPath } from 'react-hook-form';
 
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { lockingScope, useEditor } from './editor-context';
+import { useEditor, useLocked } from './editor-context';
 
 interface EditableFieldProps {
   /** The react-hook-form name (index-based), e.g. `experience.0.bullets.1.text`. */
@@ -34,9 +34,9 @@ interface EditableFieldProps {
  */
 export function EditableField(props: EditableFieldProps) {
   const { name, path, label, hideLabel, multiline, className, endAdornment, ...inputProps } = props;
-  const { form, autosave, lockedScopes } = useEditor();
+  const { form, autosave } = useEditor();
   const [error, setError] = useState<string | null>(null);
-  const locked = !!lockingScope(lockedScopes, path);
+  const locked = useLocked(path);
   const id = `field-${path.replaceAll('.', '-')}`;
   const errorId = `${id}-error`;
 
